@@ -1,17 +1,128 @@
+/* =============================================================================
+   OmniPlay-MC dashboard — design tokens & primitive styles
+   Strict adaptation of DESIGN.md (Vercel/Geist) for a developer dark UI.
+   - Shadow-as-border throughout (no traditional CSS borders on chrome).
+   - Three weights only: 400 / 500 / 600.
+   - Type scale: 11 / 12 / 14 / 16 / 20 / 24 / 32.
+   - Accent colors are functional only (status / category), never decorative.
+   - 4px spacing grid.
+   ========================================================================== */
+
 :root {
-  --bg: #0b0d10;
-  --panel: #15181d;
-  --panel-border: #232830;
-  --text: #e6e8eb;
-  --muted: #9aa3ad;
-  --accent: #4f9cff;
-  --success: #4fd18a;
-  --warn: #f1c358;
-  --danger: #f06464;
-  --code-bg: #0f1115;
+  /* ── Surface layers ─────────────────────────────────────────────────── */
+  /* DESIGN.md is white-on-dark-text; we invert tonally for a dev dark UI
+     while preserving the same micro-warmth (#0a0a0a, not pure #000). */
+  --bg:               #0a0a0a;
+  --bg-elevated:      #111113;          /* panels                          */
+  --bg-overlay:       #18181b;          /* cards inside panels             */
+  --bg-input:         #0d0d0f;          /* inputs, code blocks             */
+  --bg-hover:         rgba(255, 255, 255, 0.04);
+  --bg-active:        rgba(255, 255, 255, 0.08);
+
+  /* ── Text tiers (95 / 65 / 45 % per DESIGN.md hierarchy mandate) ────── */
+  --text:             rgba(255, 255, 255, 0.95);
+  --text-secondary:   rgba(255, 255, 255, 0.65);
+  --text-tertiary:    rgba(255, 255, 255, 0.45);
+  --text-disabled:    rgba(255, 255, 255, 0.25);
+  --text-on-accent:   #0a0a0a;
+
+  /* ── Workflow accents (DESIGN.md §2 — used only for category/status) ── */
+  --develop:          #4f9cff;          /* slightly lifted from #0a72ef    */
+  --preview:          #de1d8d;          /* exact DESIGN.md value           */
+  --ship:             #ff5b4f;          /* exact DESIGN.md value           */
+
+  /* ── Semantic (used consistently across all status indicators) ──────── */
+  --success:          #4ade80;
+  --warning:          #f5b800;
+  --danger:           #ff5b4f;          /* aliased to ship                 */
+  --info:             #4f9cff;          /* aliased to develop              */
+
+  /* Tinted backgrounds for pill badges (DESIGN.md badge philosophy) */
+  --success-bg:       rgba(74, 222, 128, 0.12);
+  --warning-bg:       rgba(245, 184, 0, 0.12);
+  --danger-bg:        rgba(255, 91, 79, 0.12);
+  --info-bg:          rgba(79, 156, 255, 0.12);
+  --develop-bg:       rgba(79, 156, 255, 0.12);
+  --preview-bg:       rgba(222, 29, 141, 0.12);
+  --ship-bg:          rgba(255, 91, 79, 0.12);
+  --neutral-bg:       rgba(255, 255, 255, 0.06);
+
+  /* ── Shadow-as-border stack (DESIGN.md §6 — multi-layer) ────────────── */
+  --ring:             rgba(255, 255, 255, 0.10) 0 0 0 1px;
+  --ring-strong:      rgba(255, 255, 255, 0.16) 0 0 0 1px;
+  --ring-subtle:      rgba(255, 255, 255, 0.06) 0 0 0 1px;
+
+  /* Subtle elevation for cards (DESIGN.md card-stack adapted to dark) */
+  --shadow-card:      var(--ring),
+                      rgba(0, 0, 0, 0.4) 0 2px 4px,
+                      rgba(0, 0, 0, 0.3) 0 8px 24px -8px,
+                      inset rgba(255, 255, 255, 0.03) 0 1px 0 0;
+
+  /* Panel — primary elevation for the dominant agent stream */
+  --shadow-panel:     var(--ring),
+                      rgba(0, 0, 0, 0.45) 0 4px 16px -2px,
+                      inset rgba(255, 255, 255, 0.04) 0 1px 0 0;
+
+  --shadow-popover:   rgba(0, 0, 0, 0.6) 0 8px 32px -4px,
+                      var(--ring-strong);
+
+  /* Focus ring (DESIGN.md §6 accessibility — Focus Blue at 2px) */
+  --focus-color:      hsla(212, 100%, 48%, 1);
+  --focus-ring:       hsla(212, 100%, 48%, 0.5) 0 0 0 2px;
+
+  /* ── Radii (DESIGN.md §5 scale) ─────────────────────────────────────── */
+  --radius-sm:        4px;     /* small containers                        */
+  --radius:           6px;     /* buttons, links, functional              */
+  --radius-md:        8px;     /* cards, list items                       */
+  --radius-lg:        12px;    /* panels, image containers                */
+  --radius-pill:      9999px;  /* badges, status pills                    */
+
+  /* ── Spacing (4px grid only — 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64) ──── */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  --font-sans: "Geist", "Inter", -apple-system, BlinkMacSystemFont,
+               "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace,
+               SFMono-Regular, "Cascadia Mono", "Roboto Mono",
+               Menlo, Monaco, monospace;
+
+  /* Strict type scale (per UI/UX mandate — 11/12/14/16/20/24/32) */
+  --t-11: 11px;
+  --t-12: 12px;
+  --t-14: 14px;
+  --t-16: 16px;
+  --t-20: 20px;
+  --t-24: 24px;
+  --t-32: 32px;
+
+  /* DESIGN.md negative tracking that scales with size */
+  --track-32: -1.28px;
+  --track-24: -0.96px;
+  --track-20: -0.4px;
+  --track-16: -0.2px;
+  --track-14: 0;
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --ease:        cubic-bezier(0.16, 1, 0.3, 1);
+  --d-fast:      150ms;
+  --d:           200ms;
+  --d-slow:      250ms;
 }
 
-* {
+/* ----------------------------------------------------------------------------
+   Reset / base
+---------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -21,21 +132,580 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: var(--t-14);
   line-height: 1.5;
+  /* DESIGN.md §3 — ligatures are structural, not optional */
+  font-feature-settings: "liga" 1, "kern" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
 }
 
 a {
-  color: var(--accent);
+  color: var(--info);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }
 
 code,
-pre {
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
-  font-size: 12.5px;
+pre,
+kbd {
+  font-family: var(--font-mono);
+  font-feature-settings: "liga" 1, "tnum" 1;
 }
 
 button {
   font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* DESIGN.md §6 — focus ring is the accessibility token, applied universally */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbars — match panel surfaces */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ----------------------------------------------------------------------------
+   Typography utilities (strict scale, three weights, scaled tracking)
+---------------------------------------------------------------------------- */
+.t-display {
+  font-size: var(--t-32);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: var(--track-32);
+}
+.t-heading {
+  font-size: var(--t-24);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: var(--track-24);
+}
+.t-title {
+  font-size: var(--t-20);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: var(--track-20);
+}
+.t-body-lg {
+  font-size: var(--t-16);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: var(--track-16);
+}
+.t-body {
+  font-size: var(--t-14);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.t-body-medium {
+  font-size: var(--t-14);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.t-caption {
+  font-size: var(--t-12);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.t-label {
+  font-size: var(--t-11);
+  font-weight: 500;
+  line-height: 1.2;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+.t-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "liga" 1, "tnum" 1;
+}
+.t-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.text-primary   { color: var(--text); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary  { color: var(--text-tertiary); }
+
+/* ----------------------------------------------------------------------------
+   Panel — surface container with shadow-as-border
+   `.panel-primary` adds the dominant card shadow stack for the lead panel.
+---------------------------------------------------------------------------- */
+.panel {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel-primary {
+  box-shadow: var(--shadow-panel);
+}
+.panel-flat {
+  /* For chrome elements (StatusBar, MetricsRibbon) — ring only, no lift. */
+  box-shadow: var(--ring);
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  /* Use a shadow-border separator inside the panel — never a CSS border. */
+  box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.panel__title {
+  font-size: var(--t-14);
+  font-weight: 600;
+  letter-spacing: var(--track-16);
+  color: var(--text);
+}
+.panel__subtitle {
+  font-size: var(--t-12);
+  color: var(--text-tertiary);
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.panel__body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--sp-4);
+  overflow: auto;
+}
+.panel__body--flush {
+  padding: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Buttons (DESIGN.md §4)
+   - .btn-primary  : inverted "white-on-dark" — high-contrast accent CTA
+   - .btn-secondary: ghost ring, transparent fill
+   - .btn-ghost    : zero chrome, hover surface
+---------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 32px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius);
+  font-size: var(--t-14);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--d-fast) var(--ease),
+              box-shadow var(--d-fast) var(--ease),
+              opacity var(--d-fast) var(--ease);
+  user-select: none;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.btn-primary {
+  background: var(--text);              /* high contrast — dark UI mirrors
+                                            DESIGN.md "dark CTA on light"     */
+  color: var(--text-on-accent);
+}
+.btn-primary:not(:disabled):hover {
+  background: #fff;
+}
+.btn-secondary {
+  background: var(--bg-overlay);
+  color: var(--text);
+  box-shadow: var(--ring);
+}
+.btn-secondary:not(:disabled):hover {
+  background: var(--bg-active);
+  box-shadow: var(--ring-strong);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:not(:disabled):hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.btn-sm {
+  height: 24px;
+  padding: 0 var(--sp-2);
+  font-size: var(--t-12);
+}
+
+/* Keyboard shortcut hint inside buttons */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--t-11);
+  font-weight: 500;
+  box-shadow: inset 0 -1px 0 0 rgba(0, 0, 0, 0.3),
+              rgba(255, 255, 255, 0.06) 0 0 0 1px;
+}
+
+/* ----------------------------------------------------------------------------
+   Pills / Badges (DESIGN.md §4 — 9999px radius, tinted bg + readable fg)
+---------------------------------------------------------------------------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--t-11);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1;
+}
+.pill-success { background: var(--success-bg); color: var(--success); }
+.pill-warning { background: var(--warning-bg); color: var(--warning); }
+.pill-danger  { background: var(--danger-bg);  color: var(--danger);  }
+.pill-info    { background: var(--info-bg);    color: var(--info);    }
+.pill-neutral { background: var(--neutral-bg); color: var(--text-secondary); }
+.pill-develop { background: var(--develop-bg); color: var(--develop); }
+.pill-preview { background: var(--preview-bg); color: var(--preview); }
+.pill-ship    { background: var(--ship-bg);    color: var(--ship);    }
+
+/* Live indicator dot — gentle pulse (per "subtle, never flashing") */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-success { background: var(--success); }
+.dot-warning { background: var(--warning); }
+.dot-danger  { background: var(--danger);  }
+.dot-info    { background: var(--info);    }
+.dot-neutral { background: var(--text-tertiary); }
+.dot-pulse {
+  animation: pulse-dot 2s var(--ease) infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ----------------------------------------------------------------------------
+   Inputs (shadow-as-border, focus uses focus-ring)
+---------------------------------------------------------------------------- */
+.input {
+  display: block;
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--sp-3);
+  background: var(--bg-input);
+  color: var(--text);
+  border-radius: var(--radius);
+  box-shadow: var(--ring);
+  font-size: var(--t-14);
+  font-family: var(--font-sans);
+  transition: box-shadow var(--d-fast) var(--ease);
+}
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  box-shadow: var(--ring), var(--focus-ring);
+}
+
+/* ----------------------------------------------------------------------------
+   Tabs (segmented control — DESIGN.md "Large Pill / Tab navigation")
+---------------------------------------------------------------------------- */
+.tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-overlay);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--ring-subtle);
+}
+.tab {
+  padding: 4px var(--sp-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--t-12);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  transition: color var(--d-fast) var(--ease),
+              background var(--d-fast) var(--ease);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.tab:hover {
+  color: var(--text-secondary);
+}
+.tab[aria-selected="true"] {
+  background: var(--bg-active);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------------------
+   Cards (event cards inside the thought stream)
+---------------------------------------------------------------------------- */
+.card {
+  background: var(--bg-overlay);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  box-shadow: var(--ring);
+  /* New events fade in (per "fade-in 200ms, don't pop") */
+  animation: card-enter var(--d) var(--ease);
+}
+.card-accent {
+  /* Use accent color via shadow ring on the left edge — no bg shift */
+  box-shadow: var(--ring),
+              inset 3px 0 0 0 var(--card-accent-color, var(--info));
+}
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------------------------------------------------------------------------
+   Code block — monospace, subtle surface
+---------------------------------------------------------------------------- */
+.code-block {
+  background: var(--bg-input);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-12);
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 240px;
+  box-shadow: var(--ring-subtle);
+  white-space: pre;
+}
+
+/* ----------------------------------------------------------------------------
+   Skeleton loader (panel-shaped, not generic spinner)
+---------------------------------------------------------------------------- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-overlay) 0%,
+    var(--bg-active) 50%,
+    var(--bg-overlay) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s var(--ease) infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ----------------------------------------------------------------------------
+   Empty / error states
+---------------------------------------------------------------------------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.empty-state__title {
+  font-size: var(--t-14);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.empty-state__hint {
+  font-size: var(--t-12);
+  color: var(--text-tertiary);
+  max-width: 320px;
+  line-height: 1.5;
+}
+.error-state {
+  padding: var(--sp-4);
+  border-radius: var(--radius-md);
+  background: var(--danger-bg);
+  box-shadow: rgba(255, 91, 79, 0.3) 0 0 0 1px;
+  color: var(--danger);
+  font-size: var(--t-13, 13px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ----------------------------------------------------------------------------
+   Toast (transient feedback for prompt submission)
+---------------------------------------------------------------------------- */
+.toast {
+  position: fixed;
+  bottom: var(--sp-6);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-overlay);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--t-14);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  z-index: 100;
+  animation: card-enter var(--d) var(--ease);
+}
+
+/* ----------------------------------------------------------------------------
+   Layout helpers
+---------------------------------------------------------------------------- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.row-tight {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.spacer {
+  flex: 1;
+  min-width: 0;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------------------
+   App shell — primary grid layout
+---------------------------------------------------------------------------- */
+.shell {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  height: 100vh;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.shell__main {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  gap: var(--sp-3);
+  min-height: 0;
+}
+
+/* Left sidebar — stacks GoalPanel above BotView */
+.shell__left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Right sidebar — stacks SkillLibrary above NarrationPlayer */
+.shell__right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .shell__main {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+  .shell__left { display: none; }
+}
+
+@media (max-width: 800px) {
+  .shell__main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell__right { display: none; }
 }

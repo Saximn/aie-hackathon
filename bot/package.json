@@ -10,6 +10,7 @@
     "build": "tsc"
   },
   "dependencies": {
+    "canvas": "^3.2.3",
     "minecraft-data": "^3.83.0",
     "mineflayer": "^4.37.1",
     "mineflayer-collectblock": "^1.4.1",

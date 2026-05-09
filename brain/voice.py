@@ -26,6 +26,7 @@ LOG = logging.getLogger("omniplay.voice")
 DEFAULT_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # "Rachel"
 DEFAULT_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
 DEFAULT_OUTPUT_DIR = Path(os.getenv("OMNIPLAY_NARRATION_DIR", "outputs/narration"))
+BRAIN_API_URL = os.getenv("BRAIN_API_URL", "http://localhost:8000")
 
 
 class Narrator:
@@ -58,6 +59,7 @@ class Narrator:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="narrator")
         self._client = self._init_client()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._memory_futures: set[asyncio.Future[None]] = set()
 
     def _init_client(self):
         if not self.api_key:
@@ -89,6 +91,9 @@ class Narrator:
         return clip_id
 
     def shutdown(self) -> None:
+        for fut in list(self._memory_futures):
+            fut.cancel()
+        self._memory_futures.clear()
         self._executor.shutdown(wait=True, cancel_futures=False)
 
     def _render_and_publish(
@@ -112,11 +117,12 @@ class Narrator:
                 LOG.warning("failed to write %s: %s", path, exc)
                 path = None
 
+        audio_url = f"{BRAIN_API_URL}/narration/{clip_id}" if path else None
         clip = NarrationClip(
             id=clip_id,
             text=text,
             voice_id=self.voice_id,
-            audio_url=None,
+            audio_url=audio_url,
             audio_path=str(path) if path else None,
             duration_ms=None,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -125,10 +131,20 @@ class Narrator:
 
         if self.memory is not None and self._loop is not None:
             try:
-                fut = asyncio.run_coroutine_threadsafe(self.memory.add_narration(clip), self._loop)
-                fut.result(timeout=15.0)
+                fut = asyncio.run_coroutine_threadsafe(
+                    self.memory.add_narration(clip), self._loop
+                )
+                self._memory_futures.add(fut)
+
+                def _on_done(f: "asyncio.Future[None]") -> None:
+                    self._memory_futures.discard(f)
+                    exc = f.exception() if not f.cancelled() else None
+                    if exc:
+                        LOG.warning("narration mirror to memory failed: %s", exc)
+
+                fut.add_done_callback(_on_done)
             except Exception as exc:
-                LOG.warning("narration mirror to memory failed: %s", exc)
+                LOG.warning("narration mirror to memory failed (schedule): %s", exc)
 
     def _synthesize(self, text: str) -> bytes:
         client = self._client

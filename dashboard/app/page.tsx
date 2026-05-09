@@ -1,45 +1,49 @@
 "use client";
 
-import { BotView } from "../components/BotView";
-import { GoalPanel } from "../components/GoalPanel";
-import { EventFeed } from "../components/EventFeed";
+import { StatusBar } from "../components/StatusBar";
+import { AgentThoughtStream } from "../components/AgentThoughtStream";
+import { PromptInput } from "../components/PromptInput";
 import { SkillLibrary } from "../components/SkillLibrary";
+import { ExecutionLog } from "../components/ExecutionLog";
+import { MetricsRibbon } from "../components/MetricsRibbon";
+import { GoalPanel } from "../components/GoalPanel";
+import { BotView } from "../components/BotView";
 import { NarrationPlayer } from "../components/NarrationPlayer";
+import { useEventStream } from "../lib/useEventStream";
 
 export default function HomePage() {
+  // Single shared WebSocket connection — every panel reads from it
+  // (avoids multiple simultaneous WS connections to the brain).
+  const { events, state, reconnect } = useEventStream();
+
   return (
-    <main
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gridTemplateRows: "auto 1fr 1fr auto",
-        gridTemplateAreas: `"header header" "view goal" "feed skills" "narrator narrator"`,
-        gap: 16,
-        padding: 16,
-        minHeight: "100vh"
-      }}
-    >
-      <header style={{ gridArea: "header" }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600 }}>OmniPlay-MC</h1>
-        <p style={{ margin: "4px 0 0", color: "var(--muted)" }}>
-          Voyager modernized onto GPT-5.5 — live agent goals, code-as-policy, skill memory, and narration.
-        </p>
-      </header>
-      <section style={{ gridArea: "view" }}>
-        <BotView />
-      </section>
-      <section style={{ gridArea: "goal" }}>
-        <GoalPanel />
-      </section>
-      <section style={{ gridArea: "feed" }}>
-        <EventFeed />
-      </section>
-      <section style={{ gridArea: "skills" }}>
-        <SkillLibrary />
-      </section>
-      <footer style={{ gridArea: "narrator" }}>
-        <NarrationPlayer />
-      </footer>
+    <main className="shell">
+      <StatusBar connection={state} />
+      <MetricsRibbon events={events} />
+
+      <div className="shell__main">
+        {/* Left column: goal context + spatial bot view */}
+        <div className="shell__left">
+          <GoalPanel events={events} />
+          <BotView events={events} />
+        </div>
+
+        {/* Center column: primary agent thought stream */}
+        <AgentThoughtStream
+          events={events}
+          connection={state}
+          onRetry={reconnect}
+        />
+
+        {/* Right column: skill library + narration player */}
+        <div className="shell__right">
+          <SkillLibrary events={events} />
+          <NarrationPlayer events={events} />
+        </div>
+      </div>
+
+      <ExecutionLog events={events} defaultOpen={false} />
+      <PromptInput />
     </main>
   );
 }

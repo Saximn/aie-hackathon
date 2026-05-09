@@ -1,19 +1,16 @@
 import type { Metadata } from "next";
-import { ConvexClientProvider } from "../components/ConvexClientProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "OmniPlay-MC Dashboard",
   description:
-    "Live observability for the Voyager-Plus Minecraft agent: goals, code, skills, and narration."
+    "Live observability for the Voyager-style Minecraft agent: goals, plans, skills, and verdicts.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <ConvexClientProvider>{children}</ConvexClientProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

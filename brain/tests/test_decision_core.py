@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from diagnoser import Diagnoser
+from game_profile_builder import GameProfileBuilder
 from models import (
     AdapterKind,
     ExecutionResult,
@@ -14,13 +15,17 @@ from models import (
     PrimitiveAction,
     PrimitiveActionType,
     RecoveryTransition,
+    ResearchNote,
     SymbolicObservation,
     VerificationResult,
     VerificationStatus,
     VisualObservation,
     WorldSnapshot,
 )
+from observer import Observer
+from planner import Planner
 from recovery_policy import RecoveryPolicy
+from researcher import Researcher
 from skill_builder import SkillBuilder
 from verifier import Verifier
 from validator import Validator
@@ -228,6 +233,29 @@ def test_skill_builder_promotes_successful_skill_without_mutating_original() -> 
     assert original.status == "candidate"
 
 
+def test_skill_builder_turns_researched_guidance_into_candidate_skill() -> None:
+    note = ResearchNote(
+        query="minecraft first night shelter",
+        summary="Collect wood, craft planks, and build a shelter before night mobs spawn.",
+        source_urls=["https://example.test/shelter"],
+        confidence=0.75,
+    )
+
+    skill = SkillBuilder().from_guidance("survive_first_night", note)
+
+    assert skill.name == "survive_first_night"
+    assert skill.source == "researched"
+    assert skill.status == "candidate"
+    assert [action.type for action in skill.ordered_actions] == [
+        PrimitiveActionType.MOVE_TOWARD_VISIBLE_OBJECT,
+        PrimitiveActionType.COLLECT_BLOCK,
+        PrimitiveActionType.CRAFT_ITEM,
+        PrimitiveActionType.BUILD_SHELTER,
+    ]
+    assert "visible_object: shelter" in skill.success_criteria
+    assert skill.failure_modes
+
+
 def test_verifier_fails_when_execution_fails() -> None:
     action = primitive_action("collect", PrimitiveActionType.COLLECT_BLOCK, block="wood")
     result = ExecutionResult(
@@ -330,3 +358,169 @@ def test_verifier_marks_high_risk_snapshot_unsafe() -> None:
 
     assert verification.status == VerificationStatus.UNSAFE
     assert verification.observed["risk_level"] == "high"
+
+
+def test_planner_creates_grounded_first_night_demo_plan() -> None:
+    import asyncio
+
+    profile = asyncio.run(GameProfileBuilder().build("minecraft"))
+    snapshot = WorldSnapshot(
+        snapshot_id="snapshot-1",
+        cycle=1,
+        game="minecraft",
+        goal="survive_first_night",
+        visual=VisualObservation(visible_objects=["tree"], risk_level="low", time_of_day="day", confidence=0.8),
+    )
+
+    plan = asyncio.run(
+        Planner().plan(
+            "survive_first_night",
+            profile,
+            snapshot,
+            memory_context="Prefer collecting wood before shelter.",
+            user_constraints=["avoid fast combat"],
+        )
+    )
+
+    assert plan.goal == "survive_first_night"
+    assert plan.snapshot_id == "snapshot-1"
+    assert [action.type for action in plan.actions] == [
+        PrimitiveActionType.MOVE_TOWARD_VISIBLE_OBJECT,
+        PrimitiveActionType.COLLECT_BLOCK,
+        PrimitiveActionType.CRAFT_ITEM,
+        PrimitiveActionType.BUILD_SHELTER,
+    ]
+    assert Validator().validate_plan(plan).status == RecoveryTransition.CONTINUE
+
+
+def test_observer_builds_world_snapshot_from_visual_and_symbolic_runtime_data() -> None:
+    import asyncio
+
+    class FakeBotClient:
+        async def screenshot_b64(self) -> str:
+            return "png-data"
+
+        async def state(self) -> dict:
+            return {
+                "health": 18,
+                "hunger": 5,
+                "inventory": {"wood": 2},
+                "nearby_blocks": ["tree"],
+                "nearby_entities": ["zombie"],
+                "biome": "forest",
+            }
+
+    class FakeVision:
+        async def observe(self, screenshot_b64, goal, game) -> VisualObservation:
+            return VisualObservation(
+                scene_summary="Forest with a tree and hostile mob.",
+                visible_objects=["tree", "zombie"],
+                risk_level="medium",
+                time_of_day="night",
+                ui_state="gameplay",
+                confidence=0.8,
+            )
+
+    snapshot = asyncio.run(Observer(FakeBotClient(), FakeVision()).observe(2, "survive_first_night", "minecraft"))
+
+    assert snapshot.snapshot_id == "minecraft:2"
+    assert snapshot.screenshot_b64 == "png-data"
+    assert snapshot.visual.visible_objects == ["tree", "zombie"]
+    assert snapshot.symbolic.inventory == {"wood": 2}
+    assert snapshot.derived_risks.night_risk == "high"
+    assert snapshot.derived_risks.combat_risk == "high"
+    assert snapshot.derived_risks.food_risk == "high"
+
+
+def test_observer_degrades_to_empty_symbolic_state_when_runtime_unavailable() -> None:
+    import asyncio
+
+    class FailingBotClient:
+        async def screenshot_b64(self) -> str:
+            raise RuntimeError("runtime down")
+
+        async def state(self) -> dict:
+            raise RuntimeError("runtime down")
+
+    snapshot = asyncio.run(Observer(FailingBotClient()).observe(1, "collect wood", "minecraft"))
+
+    assert snapshot.screenshot_b64 is None
+    assert snapshot.symbolic.inventory == {}
+    assert snapshot.visual.confidence == 0.0
+    assert snapshot.derived_risks.night_risk == "unknown"
+
+
+def test_game_profile_builder_returns_static_demo_profiles_and_unknown_fallback() -> None:
+    import asyncio
+
+    minecraft = asyncio.run(GameProfileBuilder().build("Minecraft"))
+    minetest = asyncio.run(GameProfileBuilder().build("minetest"))
+    unknown = asyncio.run(GameProfileBuilder().build("Veloren"))
+
+    assert minecraft.source == "static"
+    assert minecraft.confidence >= 0.9
+    assert "survive_first_night" in minecraft.benchmark_goals
+    assert "primary_action" in minecraft.controls
+    assert AdapterKind.MINECRAFT in minecraft.adapter_hints
+
+    assert minetest.source == "static"
+    assert minetest.confidence >= 0.8
+    assert "survive_first_night" in minetest.benchmark_goals
+    assert minetest.controls["inventory"] == "i"
+
+    assert unknown.game_name == "veloren"
+    assert unknown.source == "fallback"
+    assert unknown.confidence < 0.4
+
+
+def test_game_profile_builder_merges_research_without_overwriting_static_defaults() -> None:
+    import asyncio
+
+    note = ResearchNote(
+        query="veloren early survival",
+        summary="- Survival sandbox with WASD keyboard controls\n- Collect wood early before night",
+        source_urls=["https://example.test/guide"],
+        confidence=0.7,
+    )
+
+    researched = asyncio.run(GameProfileBuilder().build("veloren", [note]))
+    minecraft = asyncio.run(GameProfileBuilder().build("minecraft", [note]))
+
+    assert researched.source == "researched"
+    assert researched.confidence == 0.7
+    assert researched.controls["move"] == "WASD"
+    assert "Collect wood early before night" in researched.early_game_objectives
+
+    assert minecraft.source == "static"
+    assert minecraft.confidence == 0.95
+    assert minecraft.controls["inventory"] == "e"
+    assert "Survival sandbox with WASD keyboard controls" in minecraft.core_mechanics
+
+
+def test_researcher_returns_structured_notes_and_controls_provider_failures() -> None:
+    import asyncio
+
+    class FakeProvider:
+        async def search(self, query: str) -> ResearchNote:
+            return ResearchNote(
+                query=query,
+                summary=" Gather wood before night. ",
+                source_urls=[" https://example.test/a ", "https://example.test/a"],
+                confidence=1.4,
+            )
+
+    class FailingProvider:
+        async def search(self, query: str) -> ResearchNote:
+            raise RuntimeError("secret provider detail")
+
+    note = asyncio.run(Researcher(FakeProvider()).research(" minecraft   first night "))
+    failed = asyncio.run(Researcher(FailingProvider()).research("minecraft first night"))
+
+    assert note.query == "minecraft first night"
+    assert note.summary == "Gather wood before night."
+    assert note.source_urls == ["https://example.test/a"]
+    assert note.confidence == 1.0
+
+    assert failed.confidence == 0.0
+    assert failed.source_urls == []
+    assert failed.summary == "Research unavailable: RuntimeError"

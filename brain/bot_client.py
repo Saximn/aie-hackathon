@@ -55,6 +55,7 @@ class BotClient:
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._last_connect_params: dict[str, Any] | None = None
 
     async def start(self) -> None:
         if self._proc is not None:
@@ -190,14 +191,20 @@ class BotClient:
         params: dict[str, Any] = {"host": host, "port": port, "username": username}
         if version:
             params["version"] = version
+        self._last_connect_params = params
         return await self.call("connect", params, timeout=60.0)
 
     async def run_js(self, code: str, *, timeout_ms: int = 60_000) -> RunJsResult:
-        result = await self.call(
-            "runJs",
-            {"code": code, "timeoutMs": timeout_ms},
-            timeout=(timeout_ms / 1000.0) + 30.0,
-        )
+        call_timeout = (timeout_ms / 1000.0) + 30.0
+        try:
+            result = await self.call("runJs", {"code": code, "timeoutMs": timeout_ms}, timeout=call_timeout)
+        except BridgeError as exc:
+            if "not connected" in str(exc) and self._last_connect_params:
+                LOG.warning("mineflayer disconnected; attempting reconnect before retry")
+                await self.call("connect", self._last_connect_params, timeout=60.0)
+                result = await self.call("runJs", {"code": code, "timeoutMs": timeout_ms}, timeout=call_timeout)
+            else:
+                raise
         return RunJsResult(
             ok=bool(result.get("ok", False)),
             result=result.get("result"),
@@ -214,6 +221,28 @@ class BotClient:
 
     async def ping(self) -> dict[str, Any]:
         return await self.call("ping", timeout=5.0)
+
+    async def keep_alive(self, interval: float = 20.0) -> None:
+        """Send periodic pings so Minecraft doesn't kick an idle bot.
+
+        Run as a background asyncio.Task while the AgentLoop is active.
+        Survives individual ping failures — logs a warning and keeps going.
+        Raises CancelledError cleanly when the task is cancelled.
+
+        The default 20-second interval beats the typical Mineflayer idle-kick
+        threshold (~30s) while adding negligible overhead. Preventing one
+        idle-kick saves the ~30-60s reconnect round-trip that would otherwise
+        stall the agent between planning and execution.
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.ping()
+                LOG.debug("keepalive ping ok")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOG.warning("keepalive ping failed (non-fatal): %s", exc)
 
 
 __all__ = ["BotClient", "BridgeError", "RunJsResult"]

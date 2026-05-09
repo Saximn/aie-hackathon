@@ -45,16 +45,20 @@ export const upsert = mutation({
 });
 
 export const list = query({
-  args: { episodeId: v.optional(v.union(v.string(), v.null())) },
+  args: {
+    episodeId: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number())
+  },
   handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 100, 1), 500);
     if (args.episodeId) {
       return await ctx.db
         .query("skills")
         .withIndex("by_episode", (q) => q.eq("episodeId", args.episodeId as string))
         .order("desc")
-        .collect();
+        .take(limit);
     }
-    return await ctx.db.query("skills").order("desc").collect();
+    return await ctx.db.query("skills").order("desc").take(limit);
   }
 });
 

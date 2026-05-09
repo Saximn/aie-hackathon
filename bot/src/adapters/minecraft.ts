@@ -124,11 +124,11 @@ class MinecraftAdapter {
       health: bot.health,
       hunger: bot.food,
       inventory,
-      nearbyBlocks,
-      nearbyEntities,
+      nearby_blocks: nearbyBlocks,
+      nearby_entities: nearbyEntities,
       position,
       biome,
-      rawState: {
+      raw_state: {
         adapter: "minecraft",
         gameMode: bot.game.gameMode,
         timeOfDay: bot.time.timeOfDay,
@@ -159,16 +159,82 @@ class MinecraftAdapter {
       .map(([name, count]) => `${name}:${count}`);
   }
 
-  async collectBlock(_block: string, _count: number, _radius: number, _timeoutMs: number): Promise<Record<string, unknown>> {
-    throw new Error("collect_block not implemented; use generic_input actions or install mineflayer-pathfinder + mineflayer-collectblock");
+  async collectBlock(block: string, count: number, radius: number, _timeoutMs: number): Promise<Record<string, unknown>> {
+    if (!this.bot || !this.connected) {
+      throw new Error("minecraft adapter not connected");
+    }
+    const targets = this.bot.findBlocks({
+      matching: (candidate) => candidate?.name === block,
+      maxDistance: radius,
+      count
+    });
+    if (targets.length === 0) {
+      throw new Error(`could not find ${block} within ${radius} blocks`);
+    }
+    const blocks = targets
+      .map((position) => this.bot?.blockAt(position))
+      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    if (blocks.length === 0) {
+      throw new Error(`could not resolve ${block} targets`);
+    }
+    const collectBlock = (this.bot as unknown as {
+      collectBlock?: { collect: (targets: unknown) => Promise<unknown> };
+    }).collectBlock;
+    if (!collectBlock?.collect) {
+      throw new Error("mineflayer-collectblock plugin is not loaded");
+    }
+    await collectBlock.collect(blocks.length === 1 ? blocks[0] : blocks);
+    return { ok: true, block, requested: count, collectedTargets: blocks.length };
   }
 
-  async craftItem(_item: string, _count: number, _timeoutMs: number): Promise<Record<string, unknown>> {
-    throw new Error("craft_item not implemented; use generic_input actions to navigate crafting UI");
+  async craftItem(item: string, count: number, _timeoutMs: number): Promise<Record<string, unknown>> {
+    if (!this.bot || !this.connected) {
+      throw new Error("minecraft adapter not connected");
+    }
+    const registry = this.bot.registry;
+    const itemDef = registry.itemsByName[item] ?? registry.blocksByName[item];
+    if (!itemDef) {
+      throw new Error(`unknown item ${item}`);
+    }
+    const craftingTableDef = registry.blocksByName.crafting_table;
+    const table = craftingTableDef
+      ? this.bot.findBlock({ matching: craftingTableDef.id, maxDistance: 6 })
+      : null;
+    const recipeTable = table ?? null;
+    const craftingTable = table ?? undefined;
+    const recipes = this.bot.recipesFor(itemDef.id, null, 1, recipeTable);
+    if (!recipes.length) {
+      throw new Error(`no available recipe for ${item}`);
+    }
+    await this.bot.craft(recipes[0], count, craftingTable);
+    return { ok: true, item, count };
   }
 
-  async buildShelter(_material: string, _width: number, _depth: number, _height: number, _timeoutMs: number): Promise<Record<string, unknown>> {
-    throw new Error("build_shelter not implemented");
+  async buildShelter(material: string, width: number, depth: number, height: number, _timeoutMs: number): Promise<Record<string, unknown>> {
+    if (!this.bot || !this.connected) {
+      throw new Error("minecraft adapter not connected");
+    }
+    const item = this.bot.inventory.items().find((entry) => entry.name === material);
+    if (!item) {
+      throw new Error(`missing shelter material ${material}`);
+    }
+    const origin = this.bot.entity.position.floored().offset(1, 0, 1);
+    let placed = 0;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        for (let z = 0; z < depth; z++) {
+          const wall = x === 0 || z === 0 || x === width - 1 || z === depth - 1 || y === height - 1;
+          if (!wall) continue;
+          const target = origin.offset(x, y, z);
+          const reference = this.bot.blockAt(target.offset(0, -1, 0));
+          if (!reference) continue;
+          await this.bot.equip(item, "hand");
+          await this.bot.placeBlock(reference, target.minus(reference.position));
+          placed += 1;
+        }
+      }
+    }
+    return { ok: true, material, placed, width, depth, height };
   }
 }
 

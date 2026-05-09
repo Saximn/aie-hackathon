@@ -1,37 +1,27 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { api } from "../lib/convex_api";
-import { Panel } from "./Panel";
+import type { AgentEvent } from "../lib/brain";
+import { Panel } from "./ui/Panel";
 
-export function GoalPanel() {
-  const events = useQuery(api.events.recent, { limit: 100 });
-  if (!events) {
-    return (
-      <Panel title="Current goal" subtitle="loading…">
-        <div style={{ color: "var(--muted)" }}>connecting to Convex…</div>
-      </Panel>
-    );
-  }
-
+export function GoalPanel({ events }: { events: AgentEvent[] }) {
   const goalEvent = findLatest(events, "goal_received");
   const planEvent = findLatest(events, "plan_created");
   const verdictEvent = findLatest(events, "verification_completed");
 
-  const task = goalEvent?.data?.task ?? "(no goal yet)";
-  const rationale = goalEvent?.data?.rationale ?? "";
-  const explain = planEvent?.data?.explain ?? "";
-  const steps: string[] = planEvent?.data?.steps ?? [];
-  const code: string = planEvent?.data?.action?.code ?? "";
-  const verdict = verdictEvent?.data?.verdict?.verdict ?? null;
-  const feedback = verdictEvent?.data?.verdict?.feedback ?? "";
+  const task = (goalEvent?.data?.task as string | undefined) ?? "(no goal yet)";
+  const rationale = (goalEvent?.data?.rationale as string | undefined) ?? "";
+  const explain = (planEvent?.data?.explain as string | undefined) ?? "";
+  const steps: string[] = (planEvent?.data?.steps as string[] | undefined) ?? [];
+  const code: string = (planEvent?.data?.action as { code?: string } | undefined)?.code ?? "";
+  const verdict = (verdictEvent?.data?.verdict as { verdict?: string; feedback?: string } | undefined)?.verdict ?? null;
+  const feedback = (verdictEvent?.data?.verdict as { verdict?: string; feedback?: string } | undefined)?.feedback ?? "";
 
   return (
-    <Panel title="Current goal" subtitle={rationale || undefined}>
-      <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>{task}</h2>
+    <Panel title="Current goal" trailing={rationale || undefined}>
+      <h2 style={{ margin: "0 0 8px", fontSize: 16, letterSpacing: "-0.2px" }}>{task}</h2>
       {verdict ? <Verdict verdict={verdict} feedback={feedback} /> : null}
       {explain ? (
-        <p style={{ margin: "12px 0", color: "var(--muted)" }}>{explain}</p>
+        <p style={{ margin: "12px 0", color: "var(--text-secondary)", fontSize: 13 }}>{explain}</p>
       ) : null}
       {steps.length > 0 ? (
         <ol style={{ margin: "8px 0 12px 20px", padding: 0, color: "var(--text)" }}>
@@ -43,20 +33,15 @@ export function GoalPanel() {
         </ol>
       ) : null}
       {code ? (
-        <pre
-          style={{
-            background: "var(--code-bg)",
-            padding: 12,
-            borderRadius: 8,
-            margin: 0,
-            maxHeight: 220,
-            overflow: "auto",
-            border: "1px solid var(--panel-border)"
-          }}
-        >
+        <pre className="code-block" style={{ maxHeight: 220 }}>
           {code}
         </pre>
       ) : null}
+      {!goalEvent && (
+        <div className="empty-state">
+          <div className="empty-state__hint">Waiting for first goal…</div>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -64,7 +49,7 @@ export function GoalPanel() {
 function Verdict({ verdict, feedback }: { verdict: string; feedback: string }) {
   const palette: Record<string, string> = {
     success: "var(--success)",
-    incomplete: "var(--warn)",
+    incomplete: "var(--warning)",
     failed: "var(--danger)"
   };
   return (
@@ -74,20 +59,20 @@ function Verdict({ verdict, feedback }: { verdict: string; feedback: string }) {
         gap: 8,
         alignItems: "center",
         padding: "4px 10px",
-        background: "var(--code-bg)",
-        border: `1px solid ${palette[verdict] ?? "var(--panel-border)"}`,
-        borderRadius: 999,
+        background: "var(--bg-overlay)",
+        border: `1px solid ${palette[verdict] ?? "var(--ring)"}`,
+        borderRadius: "var(--radius-pill)",
         fontSize: 12
       }}
     >
       <span style={{ color: palette[verdict] ?? "var(--text)", fontWeight: 600 }}>
         {verdict}
       </span>
-      <span style={{ color: "var(--muted)" }}>{feedback}</span>
+      {feedback && <span style={{ color: "var(--text-secondary)" }}>{feedback}</span>}
     </div>
   );
 }
 
-function findLatest(events: { eventType: string; data: any }[], type: string) {
-  return events.find((e) => e.eventType === type);
+function findLatest(events: AgentEvent[], type: string): AgentEvent | undefined {
+  return [...events].reverse().find((e) => e.event_type === type);
 }

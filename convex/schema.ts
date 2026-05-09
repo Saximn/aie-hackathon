@@ -57,7 +57,9 @@ export default defineSchema({
     durationMs: v.optional(v.union(v.number(), v.null())),
     createdAt: v.string(),
     triggeredBy: v.optional(v.union(v.string(), v.null()))
-  }).index("by_episode_createdAt", ["episodeId", "createdAt"]),
+  })
+    .index("by_episode_createdAt", ["episodeId", "createdAt"])
+    .index("by_clipId", ["clipId"]),
 
   lessons: defineTable({
     episodeId: v.string(),
