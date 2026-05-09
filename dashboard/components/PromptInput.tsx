@@ -1,189 +1,191 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { postPrompt } from "../lib/brain";
+import { Button, Input, Kbd } from "./ui";
 
-const BRAIN_URL = process.env.NEXT_PUBLIC_BRAIN_URL ?? "http://localhost:8000";
+const EXAMPLES: ReadonlyArray<{ label: string; task: string }> = [
+  { label: "Chop a tree", task: "chop a tree" },
+  { label: "Build a dirt house", task: "build a dirt house near spawn" },
+  { label: "Explore for 30s", task: "explore the area for 30 seconds" },
+  { label: "Mine 5 stone", task: "mine 5 stone blocks" },
+  { label: "Find water", task: "find the nearest water source" },
+];
 
 type SendState = "idle" | "sending" | "sent" | "error";
 
-export function PromptInput() {
+export interface PromptInputProps {
+  /** Override the network call — used by tests. */
+  onSubmit?: (task: string) => Promise<{ queued_position: number }>;
+}
+
+export function PromptInput({ onSubmit }: PromptInputProps = {}) {
   const [task, setTask] = useState("");
   const [state, setState] = useState<SendState>("idle");
-  const [message, setMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [showExamples, setShowExamples] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const examplesRef = useRef<HTMLDivElement>(null);
 
   const canSubmit = task.trim().length > 0 && state !== "sending";
+
+  // Close examples on outside click
+  useEffect(() => {
+    if (!showExamples) return;
+    const onDoc = (e: MouseEvent) => {
+      if (examplesRef.current && !examplesRef.current.contains(e.target as Node)) {
+        setShowExamples(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [showExamples]);
+
+  // Auto-dismiss toasts
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   const submit = async () => {
     if (!canSubmit) return;
     setState("sending");
     try {
-      const res = await fetch(`${BRAIN_URL}/prompt`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: task.trim() }),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          detail?: string;
-        };
-        throw new Error(err.detail ?? `HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as { queued_position: number };
+      const submitFn = onSubmit ?? postPrompt;
+      const data = await submitFn(task.trim());
       setState("sent");
-      setMessage(`Queued at position ${data.queued_position}`);
+      setToast({
+        kind: "success",
+        text: `Queued · position ${data.queued_position}`,
+      });
       setTask("");
-      setTimeout(() => {
-        setState("idle");
-        setMessage(null);
-      }, 3500);
+      setTimeout(() => setState("idle"), 800);
     } catch (e) {
       setState("error");
-      setMessage(
-        e instanceof Error ? e.message : "Failed to reach brain API"
-      );
-      setTimeout(() => {
-        setState("idle");
-        setMessage(null);
-      }, 5000);
+      setToast({
+        kind: "error",
+        text: e instanceof Error ? e.message : "Failed to reach brain API",
+      });
+      setTimeout(() => setState("idle"), 1200);
     }
   };
 
-  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submit();
+    }
   };
 
   return (
-    <div
-      style={{
-        background: "var(--panel)",
-        boxShadow: "rgba(0,0,0,0.5) 0px 0px 0px 1px",
-        borderRadius: 12,
-        padding: "12px 14px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-      }}
-    >
-      {/* Header */}
+    <>
       <div
+        className="panel panel-flat"
+        role="form"
+        aria-label="Send task to agent"
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: "var(--sp-3)",
+          padding: "var(--sp-3) var(--sp-4)",
+          position: "relative",
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.2px" }}>
-          Send task to agent
+        <span className="t-label" style={{ flexShrink: 0 }}>
+          task
         </span>
-        <span
-          style={{
-            fontSize: 10,
-            color: "var(--muted)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          POST /prompt · ⌘↵
-        </span>
-      </div>
 
-      {/* Input row */}
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
+        <Input
+          ref={inputRef}
           value={task}
           onChange={(e) => setTask(e.target.value)}
-          onKeyDown={handleKey}
-          placeholder="e.g. build a dirt house near spawn…"
+          onKeyDown={onKey}
+          placeholder="Tell the agent what to do…"
           disabled={state === "sending"}
-          style={{
-            flex: 1,
-            background: "var(--code-bg)",
-            border: "none",
-            boxShadow: "rgba(0,0,0,0.5) 0px 0px 0px 1px",
-            borderRadius: 6,
-            padding: "7px 10px",
-            color: "var(--text)",
-            fontSize: 13,
-            outline: "none",
-            fontFamily: "inherit",
-            transition: "box-shadow 0.15s",
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.boxShadow =
-              "hsla(212, 100%, 48%, 0.5) 0px 0px 0px 2px";
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.boxShadow = "rgba(0,0,0,0.5) 0px 0px 0px 1px";
-          }}
+          aria-label="Task description"
+          style={{ flex: 1, height: 36 }}
         />
-        <button
+
+        {/* Examples dropdown */}
+        <div ref={examplesRef} style={{ position: "relative" }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowExamples((s) => !s)}
+            aria-expanded={showExamples}
+            aria-haspopup="menu"
+          >
+            Examples ▾
+          </Button>
+          {showExamples && (
+            <div
+              role="menu"
+              style={{
+                position: "absolute",
+                bottom: "calc(100% + 8px)",
+                right: 0,
+                minWidth: 220,
+                background: "var(--bg-overlay)",
+                borderRadius: "var(--radius-md)",
+                boxShadow: "var(--shadow-popover)",
+                padding: "var(--sp-1)",
+                zIndex: 10,
+              }}
+            >
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex.label}
+                  role="menuitem"
+                  className="btn btn-ghost"
+                  style={{
+                    width: "100%",
+                    justifyContent: "flex-start",
+                    height: 32,
+                  }}
+                  onClick={() => {
+                    setTask(ex.task);
+                    setShowExamples(false);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  {ex.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Button
+          variant="primary"
           onClick={submit}
           disabled={!canSubmit}
-          style={{
-            padding: "7px 14px",
-            borderRadius: 6,
-            border: "none",
-            background: !canSubmit
-              ? "rgba(154,163,173,0.12)"
-              : "var(--accent)",
-            color: !canSubmit ? "var(--muted)" : "#fff",
-            cursor: !canSubmit ? "not-allowed" : "pointer",
-            fontWeight: 600,
-            fontSize: 13,
-            transition: "background 0.15s, opacity 0.15s",
-            whiteSpace: "nowrap",
-          }}
+          kbd={
+            <>
+              <span aria-hidden>⌘</span>
+              <span aria-hidden>↵</span>
+            </>
+          }
+          aria-label="Send task to agent (Cmd+Enter)"
         >
           {state === "sending" ? "Sending…" : "Send Task"}
-        </button>
+        </Button>
       </div>
 
-      {/* Feedback message */}
-      {message && (
+      {/* Toast — fixed below the dock */}
+      {toast && (
         <div
+          className="toast"
+          role="status"
           style={{
-            fontSize: 12,
-            padding: "5px 10px",
-            borderRadius: 6,
-            background:
-              state === "error"
-                ? "rgba(240,100,100,0.12)"
-                : "rgba(79,209,138,0.12)",
-            color: state === "error" ? "var(--danger)" : "var(--success)",
-            boxShadow:
-              state === "error"
-                ? "rgba(240,100,100,0.3) 0px 0px 0px 1px"
-                : "rgba(79,209,138,0.3) 0px 0px 0px 1px",
+            color: toast.kind === "success" ? "var(--success)" : "var(--danger)",
+            boxShadow: `${toast.kind === "success" ? "rgba(74,222,128,0.4)" : "rgba(255,91,79,0.4)"} 0 0 0 1px, rgba(0,0,0,0.6) 0 8px 32px -4px`,
           }}
         >
-          {state === "error" ? "✗ " : "✓ "}
-          {message}
+          <span aria-hidden>{toast.kind === "success" ? "✓" : "✗"}</span>
+          <span>{toast.text}</span>
         </div>
       )}
-
-      {/* Hint */}
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--muted)",
-          marginTop: "auto",
-          paddingTop: 4,
-          lineHeight: 1.5,
-        }}
-      >
-        Tasks are queued and executed by the agent loop in{" "}
-        <code
-          style={{
-            fontFamily: "var(--font-mono)",
-            background: "var(--code-bg)",
-            padding: "1px 4px",
-            borderRadius: 3,
-            fontSize: 10,
-          }}
-        >
-          --interactive
-        </code>{" "}
-        mode.
-      </div>
-    </div>
+    </>
   );
 }

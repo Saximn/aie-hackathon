@@ -20,6 +20,7 @@ import logging
 import os
 import signal
 import sys
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -29,8 +30,14 @@ from bot_client import BotClient
 from diagnoser import Diagnoser
 from event_bus import default_bus
 from memory_store import MemoryStore
+from models import JsCodeAction
+from primitive_dispatcher import PrimitiveDispatcher
+from task_decomposer import TaskDecomposer
 from voice import Narrator
 from voyager_agents import SkillManager
+
+_dispatcher = PrimitiveDispatcher()
+_decomposer = TaskDecomposer()
 
 LOG = logging.getLogger("omniplay.run_agent")
 
@@ -114,11 +121,30 @@ async def _interactive_episode(loop: AgentLoop, args: argparse.Namespace) -> str
             task = _main_mod.task_queue.pop(0)
             LOG.info("[interactive] starting task: %r", task)
             try:
-                await loop.run_episode(
-                    task_queue=[task],
-                    max_cycles=args.max_cycles,
-                    use_curriculum=False,
-                )
+                # Task 5: Decompose into atomic sub-tasks before dispatching.
+                sub_tasks = _decomposer.decompose(task)
+                if len(sub_tasks) > 1:
+                    LOG.info("[decomposer] task=%r split into %d sub-tasks", task, len(sub_tasks))
+                for sub_task in sub_tasks:
+                    # Task 4: Match primitives before the full agent loop.
+                    primitive_js = _dispatcher.match(sub_task)
+                    if primitive_js is not None:
+                        action = JsCodeAction(
+                            id=uuid.uuid4().hex,
+                            name="primitive",
+                            code=primitive_js,
+                        )
+                        result, run = await loop.executor.execute(action)
+                        LOG.info(
+                            "[primitive] task=%r matched primitive, skipped planning ok=%s",
+                            sub_task, run.ok,
+                        )
+                    else:
+                        await loop.run_episode(
+                            task_queue=[sub_task],
+                            max_cycles=args.max_cycles,
+                            use_curriculum=False,
+                        )
             except Exception as exc:
                 LOG.error("[interactive] task %r raised: %s", task, exc)
         else:
@@ -182,7 +208,10 @@ async def _amain(args: argparse.Namespace) -> int:
         task_queue_local: list[str] = []
         use_interactive = True
     elif args.task:
-        task_queue_local = [args.task]
+        # Task 5: Decompose the user-supplied task before passing to the loop.
+        task_queue_local = _decomposer.decompose(args.task)
+        if len(task_queue_local) > 1:
+            LOG.info("[decomposer] task=%r split into %d sub-tasks", args.task, len(task_queue_local))
         use_interactive = False
     elif args.demo:
         task_queue_local = list(DEMO_CURRICULUM)

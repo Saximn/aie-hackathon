@@ -3,103 +3,47 @@
 import { StatusBar } from "../components/StatusBar";
 import { AgentThoughtStream } from "../components/AgentThoughtStream";
 import { PromptInput } from "../components/PromptInput";
-import { ExecutionLog } from "../components/ExecutionLog";
 import { SkillLibrary } from "../components/SkillLibrary";
-import { BotView } from "../components/BotView";
+import { ExecutionLog } from "../components/ExecutionLog";
+import { MetricsRibbon } from "../components/MetricsRibbon";
 import { GoalPanel } from "../components/GoalPanel";
+import { BotView } from "../components/BotView";
 import { NarrationPlayer } from "../components/NarrationPlayer";
+import { useEventStream } from "../lib/useEventStream";
 
 export default function HomePage() {
+  // Single shared WebSocket connection — every panel reads from it
+  // (avoids multiple simultaneous WS connections to the brain).
+  const { events, state, reconnect } = useEventStream();
+
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        padding: 12,
-        minHeight: "100vh",
-        maxWidth: 1600,
-        margin: "0 auto",
-      }}
-    >
-      {/* ── Status bar ───────────────────────────────────────────── */}
-      <StatusBar />
+    <main className="shell">
+      <StatusBar connection={state} />
+      <MetricsRibbon events={events} />
 
-      {/* ── Main 3-column grid ──────────────────────────────────── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "260px 1fr 300px",
-          gridTemplateRows: "1fr 1fr",
-          gap: 12,
-          flex: 1,
-          minHeight: 0,
-          height: "calc(100vh - 200px)",
-        }}
-      >
-        {/* Left col — BotView + GoalPanel */}
-        <div
-          style={{
-            gridColumn: "1",
-            gridRow: "1 / 3",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            minHeight: 0,
-          }}
-        >
-          <div style={{ flex: "0 0 260px" }}>
-            <BotView />
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <GoalPanel />
-          </div>
+      <div className="shell__main">
+        {/* Left column: goal context + spatial bot view */}
+        <div className="shell__left">
+          <GoalPanel events={events} />
+          <BotView events={events} />
         </div>
 
-        {/* Center — Agent Thought Stream (spans both rows) */}
-        <div
-          style={{
-            gridColumn: "2",
-            gridRow: "1 / 3",
-            minHeight: 0,
-          }}
-        >
-          <AgentThoughtStream />
-        </div>
+        {/* Center column: primary agent thought stream */}
+        <AgentThoughtStream
+          events={events}
+          connection={state}
+          onRetry={reconnect}
+        />
 
-        {/* Right col — SkillLibrary top, ExecutionLog bottom */}
-        <div
-          style={{
-            gridColumn: "3",
-            gridRow: "1",
-            minHeight: 0,
-          }}
-        >
-          <SkillLibrary />
-        </div>
-        <div
-          style={{
-            gridColumn: "3",
-            gridRow: "2",
-            minHeight: 0,
-          }}
-        >
-          <ExecutionLog />
+        {/* Right column: skill library + narration player */}
+        <div className="shell__right">
+          <SkillLibrary events={events} />
+          <NarrationPlayer events={events} />
         </div>
       </div>
 
-      {/* ── Bottom row — Prompt + Narration ─────────────────────── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 12,
-          flexShrink: 0,
-        }}
-      >
-        <PromptInput />
-        <NarrationPlayer />
-      </div>
-    </div>
+      <ExecutionLog events={events} defaultOpen={false} />
+      <PromptInput />
+    </main>
   );
 }

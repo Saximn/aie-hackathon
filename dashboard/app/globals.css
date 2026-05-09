@@ -679,15 +679,33 @@ ol {
   min-height: 0;
 }
 
+/* Left sidebar — stacks GoalPanel above BotView */
+.shell__left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Right sidebar — stacks SkillLibrary above NarrationPlayer */
+.shell__right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+}
+
 @media (max-width: 1100px) {
   .shell__main {
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr) 320px;
   }
-  .shell__main > .panel-botview { display: none; }
+  .shell__left { display: none; }
 }
+
 @media (max-width: 800px) {
   .shell__main {
     grid-template-columns: minmax(0, 1fr);
   }
-  .shell__main > .panel-skills { display: none; }
+  .shell__right { display: none; }
 }

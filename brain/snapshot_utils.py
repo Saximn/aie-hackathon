@@ -40,3 +40,38 @@ def compress_snapshot(snapshot: dict[str, Any], max_blocks: int = 20) -> dict[st
 
 
 __all__ = ["compress_snapshot"]
+
+# ---------------------------------------------------------------------------
+# INTEGRATION NOTE — brain/planner.py (friend-owned: do not edit directly)
+# ---------------------------------------------------------------------------
+# `brain/planner.py` is owned by a teammate and must not be modified by this
+# agent.  The one-line wiring needed to apply snapshot compression is in the
+# private helper `_snapshot_for_prompt` at the bottom of that file:
+#
+#   from snapshot_utils import compress_snapshot
+#
+#   def _snapshot_for_prompt(snapshot: WorldSnapshot) -> dict[str, Any]:
+#       sym = snapshot.symbolic
+#       raw = {
+#           "position": sym.position.model_dump() if sym.position else None,
+#           "biome":    sym.biome,
+#           "health":   sym.health,
+#           "hunger":   sym.hunger,
+#           "inventory": sym.inventory,
+#           "nearbyBlocks":    sym.nearby_blocks,
+#           "nearbyEntities":  sym.nearby_entities,
+#           "rawState": sym.raw_state,
+#       }
+#       return compress_snapshot(raw, max_blocks=20)   # ← add this line
+#
+# Alternatively, the call can be placed inside `Planner.plan()` immediately
+# before passing `snapshot_dict` to `self.action_agent.generate_code()`:
+#
+#   snapshot_dict = compress_snapshot(
+#       _snapshot_for_prompt(snapshot), max_blocks=20
+#   )
+#
+# Either location produces the same effect: `raw_state` is stripped and
+# `nearbyBlocks` is capped at 20 most-frequent distinct block types before
+# the dict is serialised into the action-agent LLM prompt.
+# ---------------------------------------------------------------------------

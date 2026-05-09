@@ -1,83 +1,88 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../lib/convex_api";
+import type { AgentEvent } from "../lib/brain";
+import { narrationUrl } from "../lib/brain";
 
 interface NarrationClip {
-  _id: string;
   clipId: string;
   text: string;
-  audioUrl?: string | null;
-  createdAt: string;
 }
 
-export function NarrationPlayer() {
-  const clips = useQuery(api.narration.latest, { limit: 5 }) as NarrationClip[] | undefined;
+export function NarrationPlayer({ events }: { events: AgentEvent[] }) {
+  // Collect narration events from the shared WebSocket stream, most-recent first.
+  const clips = useMemo<NarrationClip[]>(() => {
+    return [...events]
+      .reverse()
+      .filter((e) => e.event_type === "narration" && e.data?.clip_id)
+      .slice(0, 5)
+      .map((e) => ({
+        clipId: String(e.data.clip_id),
+        text: String(e.data.text ?? ""),
+      }));
+  }, [events]);
+
   const [muted, setMuted] = useState(false);
   const [playedIds, setPlayedIds] = useState<Set<string>>(() => new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const latest = clips?.[0];
+  const latest = clips[0];
 
   useEffect(() => {
     if (!latest || muted) return;
-    if (!latest.audioUrl) return;
     if (playedIds.has(latest.clipId)) return;
-    setPlayedIds(new Set([...playedIds, latest.clipId]));
+    setPlayedIds((prev) => new Set([...prev, latest.clipId]));
     const audio = audioRef.current;
     if (audio) {
-      audio.src = latest.audioUrl;
+      audio.src = narrationUrl(latest.clipId);
       audio.play().catch(() => {
-        /* autoplay rejected; user can press play manually */
+        /* autoplay policy may block; user can press play manually */
       });
     }
-  }, [latest?.clipId, latest?.audioUrl, muted, playedIds]);
+  }, [latest?.clipId, muted, playedIds]);
 
-  const recent = useMemo(() => clips?.slice(0, 3) ?? [], [clips]);
+  const recent = clips.slice(0, 3);
 
   return (
     <div
       style={{
-        background: "var(--panel)",
-        border: "1px solid var(--panel-border)",
-        borderRadius: 12,
+        background: "var(--bg-elevated)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
         padding: "10px 16px",
         display: "flex",
-        gap: 16,
-        alignItems: "center"
+        gap: 12,
+        alignItems: "center",
+        flexShrink: 0,
       }}
     >
       <button
         onClick={() => setMuted((m) => !m)}
-        style={{
-          background: "var(--code-bg)",
-          border: "1px solid var(--panel-border)",
-          color: "var(--text)",
-          padding: "6px 12px",
-          borderRadius: 6,
-          cursor: "pointer"
-        }}
+        className="btn btn-secondary btn-sm"
       >
-        {muted ? "Unmute narration" : "Mute"}
+        {muted ? "Unmute" : "Mute"}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "var(--muted)", fontSize: 12 }}>Latest narration</div>
-        <div style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", fontFamily: "var(--font-mono)" }}>
+          Narration
+        </div>
+        <div style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "var(--text)" }}>
           {latest?.text ?? "—"}
         </div>
       </div>
-      <audio ref={audioRef} controls style={{ width: 240 }} />
-      <details style={{ color: "var(--muted)", fontSize: 12 }}>
-        <summary style={{ cursor: "pointer" }}>history</summary>
-        <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0", maxWidth: 320 }}>
-          {recent.map((c) => (
-            <li key={c.clipId} style={{ padding: "2px 0" }}>
-              {c.text}
-            </li>
-          ))}
-        </ul>
-      </details>
+      <audio ref={audioRef} controls style={{ width: 200, flexShrink: 0 }} />
+      {recent.length > 1 && (
+        <details style={{ color: "var(--text-secondary)", fontSize: 12, flexShrink: 0 }}>
+          <summary style={{ cursor: "pointer" }}>history</summary>
+            <ul style={{ listStyle: "none", padding: "8px 12px", margin: "8px 0 0", maxWidth: 280, position: "absolute", background: "var(--bg-overlay)", boxShadow: "var(--shadow-popover)", borderRadius: "var(--radius-md)" }}>
+            {recent.map((c) => (
+              <li key={c.clipId} style={{ padding: "2px 0", fontSize: 12, color: "var(--text-secondary)" }}>
+                {c.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

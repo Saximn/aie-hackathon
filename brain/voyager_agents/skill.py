@@ -18,6 +18,7 @@ from typing import Any
 import chromadb
 from chromadb.config import Settings
 
+from embedding_cache import default_cache
 from llm_client import LLMClient, default_client
 
 LOG = logging.getLogger("omniplay.skill")
@@ -135,7 +136,7 @@ class SkillManager:
     def retrieve(self, query: str, *, k: int = 3) -> list[RetrievedSkill]:
         if self.count() == 0:
             return []
-        embedding = self.llm.embed([query])[0]
+        embedding = default_cache().get_or_compute(query, lambda t: self.llm.embed([t])[0])
         result = self._collection.query(query_embeddings=[embedding], n_results=k)
         retrieved: list[RetrievedSkill] = []
         ids = result.get("ids") or [[]]
