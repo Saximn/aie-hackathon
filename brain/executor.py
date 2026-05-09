@@ -1,4 +1,4 @@
-"""Executor scaffold for dispatching PrimitiveActions to the bot runtime."""
+"""Executor scaffold for dispatching PrimitiveActions to the runtime."""
 
 from bot_client import BotClient
 from models import ExecutionResult, PrimitiveAction
@@ -11,5 +11,5 @@ class Executor:
         self.bot_client = bot_client
 
     async def execute(self, action: PrimitiveAction) -> ExecutionResult:
-        # TODO(Person B): add action serialization and event emission hooks.
+        """Run a PrimitiveAction without adding reasoning at execution time."""
         return await self.bot_client.execute(action)

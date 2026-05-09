@@ -1,4 +1,4 @@
-"""Shared SkillForge AI Brain contracts.
+"""Shared OmniForge AI Brain contracts.
 
 These models define the module boundaries before implementation. Keep this file
 as the source of truth for Python-side contracts.
@@ -6,25 +6,31 @@ as the source of truth for Python-side contracts.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
+class AdapterKind(StrEnum):
+    GENERIC_INPUT = "generic_input"
+    MINECRAFT = "minecraft"
+
+
 class PrimitiveActionType(StrEnum):
-    MOVE_TO = "move_to"
-    MINE_BLOCK = "mine_block"
-    CRAFT = "craft"
-    EQUIP = "equip"
-    EAT = "eat"
-    ATTACK_NEAREST = "attack_nearest"
-    SLEEP = "sleep"
-    PLACE_BLOCK = "place_block"
-    CHAT = "chat"
-    EXPLORE = "explore"
-    LOOK_AROUND = "look_around"
-    CALL_SKILL = "call_skill"
+    PRESS_KEY = "press_key"
+    HOLD_KEY = "hold_key"
+    MOVE_MOUSE = "move_mouse"
+    CLICK = "click"
+    WAIT = "wait"
+    OPEN_MENU = "open_menu"
+    SELECT_HOTBAR_SLOT = "select_hotbar_slot"
+    MOVE_TOWARD_VISIBLE_OBJECT = "move_toward_visible_object"
+    INTERACT_PRIMARY = "interact_primary"
+    COLLECT_BLOCK = "collect_block"
+    CRAFT_ITEM = "craft_item"
+    BUILD_SHELTER = "build_shelter"
 
 
 class VerificationStatus(StrEnum):
@@ -41,14 +47,12 @@ class FailureType(StrEnum):
     INSUFFICIENT_RESOURCES = "insufficient_resources"
     RESOURCE_UNAVAILABLE = "resource_unavailable"
     PATHFINDING_FAILURE = "pathfinding_failure"
-    CRAFTING_FAILURE = "crafting_failure"
-    COMBAT_RISK = "combat_risk"
-    ENVIRONMENT_CHANGED = "environment_changed"
+    VISUAL_MISALIGNMENT = "visual_misalignment"
     BAD_PLAN_ORDERING = "bad_plan_ordering"
-    AMBIGUOUS_ACTION = "ambiguous_action"
     UNSUPPORTED_ACTION = "unsupported_action"
     MISSING_STRATEGY = "missing_strategy"
     TIMEOUT = "timeout"
+    UNSAFE_STATE = "unsafe_state"
 
 
 class RecoveryTransition(StrEnum):
@@ -59,7 +63,6 @@ class RecoveryTransition(StrEnum):
     ABORT = "abort"
     STORE_MEMORY = "store_memory"
     PROMOTE_SKILL = "promote_skill"
-    DEMOTE_SKILL = "demote_skill"
 
 
 class SkillSource(StrEnum):
@@ -69,18 +72,27 @@ class SkillSource(StrEnum):
     USER = "user"
 
 
-class DashboardEventType(StrEnum):
-    STATE = "state"
-    PLAN = "plan"
-    ACTION = "action"
-    EXECUTION = "execution"
-    VERIFICATION = "verification"
-    DIAGNOSIS = "diagnosis"
-    RECOVERY = "recovery"
-    RESEARCH = "research"
-    SKILL = "skill"
-    MEMORY = "memory"
-    ERROR = "error"
+class SkillStatus(StrEnum):
+    CANDIDATE = "candidate"
+    VERIFIED = "verified"
+    TRUSTED = "trusted"
+
+
+class AgentEventType(StrEnum):
+    GOAL_RECEIVED = "goal_received"
+    GAME_PROFILE_CREATED = "game_profile_created"
+    WORLD_OBSERVED = "world_observed"
+    MEMORY_RETRIEVED = "memory_retrieved"
+    PLAN_CREATED = "plan_created"
+    ACTION_STARTED = "action_started"
+    ACTION_COMPLETED = "action_completed"
+    VERIFICATION_COMPLETED = "verification_completed"
+    FAILURE_DIAGNOSED = "failure_diagnosed"
+    RESEARCH_STARTED = "research_started"
+    RESEARCH_COMPLETED = "research_completed"
+    SKILL_CANDIDATE_CREATED = "skill_candidate_created"
+    SKILL_PROMOTED = "skill_promoted"
+    USER_INSTRUCTION_RECEIVED = "user_instruction_received"
 
 
 class Position(BaseModel):
@@ -89,24 +101,52 @@ class Position(BaseModel):
     z: float
 
 
-class InventoryItem(BaseModel):
-    name: str
-    count: int
+class GameProfile(BaseModel):
+    game_name: str
+    genre: str
+    controls: dict[str, str] = Field(default_factory=dict)
+    core_mechanics: list[str] = Field(default_factory=list)
+    early_game_objectives: list[str] = Field(default_factory=list)
+    benchmark_goals: list[str] = Field(default_factory=lambda: ["survive_first_night"])
+    adapter_hints: list[AdapterKind] = Field(default_factory=lambda: [AdapterKind.GENERIC_INPUT])
+    source: Literal["static", "researched", "user"] = "static"
+    confidence: float = 1.0
+
+
+class VisualObservation(BaseModel):
+    scene_summary: str = ""
+    visible_objects: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high", "unknown"] = "unknown"
+    time_of_day: Literal["day", "night", "dawn", "dusk", "unknown"] = "unknown"
+    ui_state: Literal["gameplay", "menu", "inventory", "unknown"] = "unknown"
+    confidence: float = 0.0
+
+
+class SymbolicObservation(BaseModel):
+    health: float | None = None
+    hunger: float | None = None
+    inventory: dict[str, int] = Field(default_factory=dict)
+    nearby_blocks: list[str] = Field(default_factory=list)
+    nearby_entities: list[str] = Field(default_factory=list)
+    position: Position | None = None
+    biome: str | None = None
+    raw_state: dict[str, Any] = Field(default_factory=dict)
+
+
+class DerivedRisks(BaseModel):
+    night_risk: Literal["low", "medium", "high", "unknown"] = "unknown"
+    combat_risk: Literal["low", "medium", "high", "unknown"] = "unknown"
+    food_risk: Literal["low", "medium", "high", "unknown"] = "unknown"
 
 
 class WorldSnapshot(BaseModel):
     snapshot_id: str
     cycle: int
-    raw_state: dict[str, Any] = Field(default_factory=dict)
-    position: Position | None = None
-    health: float | None = None
-    food: float | None = None
-    inventory: list[InventoryItem] = Field(default_factory=list)
-    nearby_blocks: list[str] = Field(default_factory=list)
-    nearby_entities: list[str] = Field(default_factory=list)
-    biome: str | None = None
-    time_of_day: str | None = None
-    is_day: bool | None = None
+    game: str
+    goal: str
+    visual: VisualObservation = Field(default_factory=VisualObservation)
+    symbolic: SymbolicObservation = Field(default_factory=SymbolicObservation)
+    derived_risks: DerivedRisks = Field(default_factory=DerivedRisks)
     screenshot_b64: str | None = None
 
 
@@ -115,11 +155,12 @@ class PrimitiveAction(BaseModel):
     type: PrimitiveActionType
     args: dict[str, Any] = Field(default_factory=dict)
     expected_result: dict[str, Any] = Field(default_factory=dict)
-    timeout_s: int = 20
-    failure_policy: str = "diagnose"
+    timeout_ms: int = 3000
+    adapter: AdapterKind = AdapterKind.GENERIC_INPUT
 
 
 class Plan(BaseModel):
+    plan_id: str
     goal: str
     snapshot_id: str
     used_skills: list[str] = Field(default_factory=list)
@@ -137,21 +178,36 @@ class VerificationResult(BaseModel):
     action_id: str
     status: VerificationStatus
     expected: dict[str, Any] = Field(default_factory=dict)
-    actual: dict[str, Any] = Field(default_factory=dict)
-    evidence: dict[str, Any] = Field(default_factory=dict)
+    observed: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
 
 
 class Diagnosis(BaseModel):
     action_id: str
     failure_type: FailureType | None = None
     confidence: float = 0.0
-    reason: str = ""
+    cause: str = ""
+    repair: str = ""
+    should_research: bool = False
     recommended_transition: RecoveryTransition = RecoveryTransition.REPLAN
+
+
+class ResearchNote(BaseModel):
+    query: str
+    summary: str
+    source_urls: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
 
 
 class SkillActionTemplate(BaseModel):
     type: PrimitiveActionType
     args_template: dict[str, Any] = Field(default_factory=dict)
+    adapter: AdapterKind = AdapterKind.GENERIC_INPUT
+
+
+class SkillFailureMode(BaseModel):
+    type: FailureType
+    repair: str
 
 
 class Skill(BaseModel):
@@ -159,18 +215,19 @@ class Skill(BaseModel):
     version: int = 1
     goal: str
     preconditions: list[str] = Field(default_factory=list)
-    ordered_action_templates: list[SkillActionTemplate] = Field(default_factory=list)
-    success_criteria: dict[str, Any] = Field(default_factory=dict)
-    failure_modes: list[FailureType] = Field(default_factory=list)
+    ordered_actions: list[SkillActionTemplate] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    failure_modes: list[SkillFailureMode] = Field(default_factory=list)
     source: SkillSource = SkillSource.LEARNED
     confidence: float = 0.0
+    status: SkillStatus = SkillStatus.CANDIDATE
     last_verified_at: str | None = None
 
 
-class DashboardEvent(BaseModel):
+class AgentEvent(BaseModel):
     id: str
-    ts: float
-    cycle: int
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    event_type: AgentEventType
+    cycle: int = 0
     snapshot_id: str | None = None
-    type: DashboardEventType
     data: dict[str, Any] = Field(default_factory=dict)
