@@ -211,23 +211,31 @@ The generic path is screenshot plus keyboard/mouse. Game-specific adapters can i
 
 ## Shared HTTP Contract
 
+Shared JSON payloads use `snake_case` field names so the Python Brain can
+consume Runtime data without translation. TypeScript Runtime types should keep
+the same JSON names at the HTTP seam.
+
 The Runtime exposes:
 
-- `GET /health`: runtime health and adapter liveness
-- `GET /state`: optional symbolic game state
-- `GET /screenshot`: current first-person PNG screenshot
-- `GET /actions`: supported primitive action and adapter action metadata
-- `POST /action`: executes one grounded Primitive Action
+- `GET /health`: `RuntimeHealth` with runtime readiness, available adapters, screenshot availability, symbolic-state availability, and version.
+- `GET /state`: `RuntimeState` with an availability flag, optional game name, and a `Symbolic Observation`. Symbolic fields may be empty when no adapter is attached.
+- `GET /screenshot`: `RuntimeScreenshot` with optional base64 PNG data and capture metadata. Missing screenshot data means unavailable, not a transport failure.
+- `GET /actions`: `RuntimeActions` listing supported Primitive Action metadata and required args.
+- `POST /action`: accepts one grounded `Primitive Action` and returns an `Execution Result`. Unsupported or malformed actions should return a failed execution result rather than reasoning about repairs.
 
 The AI Brain exposes:
 
-- `GET /health`: brain, runtime, memory, and feature-flag health
-- `POST /start`: starts the AgentLoop
-- `POST /stop`: stops the AgentLoop
-- `GET /status`: current cycle, goal, transition, and track status
-- `GET /memory`: current memory and skill state
-- `POST /test_action`: validates and sends one Primitive Action
-- `WS /ws`: streams Agent Events
+- `GET /health`: `BrainHealth` with Brain readiness, Runtime status, MemoryStore status, and coarse feature flags.
+- `POST /start`: accepts `StartAgentLoopRequest` with game, goal, user constraints, max cycles, and whether research is allowed. Returns `StartAgentLoopResponse`.
+- `POST /stop`: stops the AgentLoop lifecycle and returns `StopAgentLoopResponse`.
+- `GET /status`: `AgentLoopStatus` with running state, game, goal, cycle, latest Recovery Transition, per-track status, and latest Agent Event id.
+- `GET /memory`: current memory and Skill state. This should stay read-only and should not expose provider credentials or raw scraped pages.
+- `POST /test_action`: validates and sends one Primitive Action through the Runtime for manual verification.
+- `WS /ws`: streams Agent Events.
+
+The contract is intentionally small. The Bot should not expose high-level game
+reasoning endpoints, and the Brain should not expose low-level keyboard/mouse
+control endpoints except through validated Primitive Actions.
 
 ## Module Scaffolds
 

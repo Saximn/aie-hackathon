@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from config import settings
-from models import AgentEvent, Skill
+from models import AgentEvent, GameProfile, ResearchNote, Skill
 
 
 class MemoryStore:
@@ -73,6 +73,35 @@ class MemoryStore:
             ),
         )
 
+    async def append_research_note(self, note: ResearchNote) -> None:
+        """Persist a structured Research Note without provider internals."""
+        self.client.memories.add(
+            text=json.dumps(note.model_dump(mode="json"), indent=2),
+            title=f"Research Note: {note.query}",
+            resource_id=f"research:{_stable_id(note.query)}",
+            collection=self._settings.hyperspell_collection,
+            metadata=self._metadata(
+                "research_note",
+                query=note.query,
+                confidence=str(note.confidence),
+            ),
+        )
+
+    async def upsert_game_profile(self, profile: GameProfile) -> None:
+        """Persist durable Game Profile context for future Brain cycles."""
+        self.client.memories.add(
+            text=json.dumps(profile.model_dump(mode="json"), indent=2),
+            title=f"Game Profile: {profile.game_name}",
+            resource_id=f"game_profile:{_stable_id(profile.game_name)}",
+            collection=self._settings.hyperspell_collection,
+            metadata=self._metadata(
+                "game_profile",
+                game_name=profile.game_name,
+                source=str(profile.source),
+                confidence=str(profile.confidence),
+            ),
+        )
+
     async def context(self, query: str = "relevant OmniForge agent memories") -> str:
         """Return concise memory context for planning and recovery."""
         response = self.client.memories.search(
@@ -97,3 +126,7 @@ class MemoryStore:
             snippets.append(str(summary or text or document))
 
         return "\n\n".join(snippets)
+
+
+def _stable_id(value: str) -> str:
+    return "-".join(value.strip().lower().split())[:80] or "unknown"

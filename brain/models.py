@@ -93,6 +93,13 @@ class AgentEventType(StrEnum):
     USER_INSTRUCTION_RECEIVED = "user_instruction_received"
 
 
+class TrackStatus(StrEnum):
+    READY = "ready"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
 class Position(BaseModel):
     x: float
     y: float
@@ -107,7 +114,7 @@ class GameProfile(BaseModel):
     early_game_objectives: list[str] = Field(default_factory=list)
     benchmark_goals: list[str] = Field(default_factory=list)
     adapter_hints: list[AdapterKind] = Field(default_factory=list)
-    source: Literal["static", "researched", "user"] = "static"
+    source: Literal["static", "researched", "user", "fallback"] = "static"
     confidence: float = 0.0
 
 
@@ -172,6 +179,39 @@ class ExecutionResult(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class SupportedAction(BaseModel):
+    type: PrimitiveActionType
+    adapter: AdapterKind
+    description: str
+    required_args: list[str] = Field(default_factory=list)
+
+
+class RuntimeHealth(BaseModel):
+    runtime: TrackStatus = TrackStatus.UNKNOWN
+    adapters: list[AdapterKind] = Field(default_factory=list)
+    screenshot_available: bool = False
+    symbolic_state_available: bool = False
+    version: str = "unknown"
+
+
+class RuntimeState(BaseModel):
+    available: bool = False
+    game: str | None = None
+    symbolic: SymbolicObservation = Field(default_factory=SymbolicObservation)
+
+
+class RuntimeScreenshot(BaseModel):
+    screenshot_b64: str | None = None
+    media_type: str = "image/png"
+    captured_at: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+class RuntimeActions(BaseModel):
+    actions: list[SupportedAction] = Field(default_factory=list)
+
+
 class VerificationResult(BaseModel):
     action_id: str
     status: VerificationStatus
@@ -229,3 +269,38 @@ class AgentEvent(BaseModel):
     cycle: int = 0
     snapshot_id: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class BrainHealth(BaseModel):
+    brain: TrackStatus = TrackStatus.READY
+    runtime: TrackStatus = TrackStatus.UNKNOWN
+    memory: TrackStatus = TrackStatus.UNKNOWN
+    features: dict[str, bool] = Field(default_factory=dict)
+
+
+class StartAgentLoopRequest(BaseModel):
+    game: str
+    goal: str
+    user_constraints: list[str] = Field(default_factory=list)
+    max_cycles: int = 1
+    research_allowed: bool = True
+
+
+class AgentLoopStatus(BaseModel):
+    running: bool = False
+    game: str | None = None
+    goal: str | None = None
+    cycle: int = 0
+    transition: RecoveryTransition | None = None
+    tracks: dict[str, TrackStatus] = Field(default_factory=dict)
+    last_event_id: str | None = None
+
+
+class StartAgentLoopResponse(BaseModel):
+    accepted: bool
+    status: AgentLoopStatus
+
+
+class StopAgentLoopResponse(BaseModel):
+    stopped: bool
+    status: AgentLoopStatus

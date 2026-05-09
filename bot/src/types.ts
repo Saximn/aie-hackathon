@@ -1,5 +1,7 @@
 export type AdapterKind = "generic_input" | "minecraft";
 
+export type TrackStatus = "ready" | "degraded" | "unavailable" | "unknown";
+
 export type VerificationStatus =
   | "success"
   | "incomplete"
@@ -29,23 +31,23 @@ export interface Position {
 }
 
 export interface GameProfile {
-  gameName: string;
+  game_name: string;
   genre: string;
   controls: Record<string, string>;
-  coreMechanics: string[];
-  earlyGameObjectives: string[];
-  benchmarkGoals: string[];
-  adapterHints: AdapterKind[];
-  source: "static" | "researched" | "user";
+  core_mechanics: string[];
+  early_game_objectives: string[];
+  benchmark_goals: string[];
+  adapter_hints: AdapterKind[];
+  source: "static" | "researched" | "user" | "fallback";
   confidence: number;
 }
 
 export interface VisualObservation {
-  sceneSummary: string;
-  visibleObjects: string[];
-  riskLevel: "low" | "medium" | "high" | "unknown";
-  timeOfDay: "day" | "night" | "dawn" | "dusk" | "unknown";
-  uiState: "gameplay" | "menu" | "inventory" | "unknown";
+  scene_summary: string;
+  visible_objects: string[];
+  risk_level: "low" | "medium" | "high" | "unknown";
+  time_of_day: "day" | "night" | "dawn" | "dusk" | "unknown";
+  ui_state: "gameplay" | "menu" | "inventory" | "unknown";
   confidence: number;
 }
 
@@ -53,41 +55,41 @@ export interface SymbolicObservation {
   health?: number;
   hunger?: number;
   inventory: Record<string, number>;
-  nearbyBlocks: string[];
-  nearbyEntities: string[];
+  nearby_blocks: string[];
+  nearby_entities: string[];
   position?: Position;
   biome?: string;
-  rawState: Record<string, unknown>;
+  raw_state: Record<string, unknown>;
 }
 
 export interface DerivedRisks {
-  nightRisk: "low" | "medium" | "high" | "unknown";
-  combatRisk: "low" | "medium" | "high" | "unknown";
-  foodRisk: "low" | "medium" | "high" | "unknown";
+  night_risk: "low" | "medium" | "high" | "unknown";
+  combat_risk: "low" | "medium" | "high" | "unknown";
+  food_risk: "low" | "medium" | "high" | "unknown";
 }
 
 export interface WorldSnapshot {
-  snapshotId: string;
+  snapshot_id: string;
   cycle: number;
   game: string;
   goal: string;
   visual: VisualObservation;
   symbolic: SymbolicObservation;
-  derivedRisks: DerivedRisks;
-  screenshotB64?: string;
+  derived_risks: DerivedRisks;
+  screenshot_b64?: string;
 }
 
 export interface PrimitiveAction {
   id: string;
   type: PrimitiveActionType;
   args: Record<string, unknown>;
-  expectedResult: Record<string, unknown>;
-  timeoutMs: number;
+  expected_result: Record<string, unknown>;
+  timeout_ms: number;
   adapter: AdapterKind;
 }
 
 export interface ExecutionResult {
-  actionId: string;
+  action_id: string;
   success: boolean;
   result: string;
   evidence: Record<string, unknown>;
@@ -97,5 +99,66 @@ export interface SupportedAction {
   type: PrimitiveActionType;
   adapter: AdapterKind;
   description: string;
-  requiredArgs: string[];
+  required_args: string[];
+}
+
+export interface RuntimeHealth {
+  runtime: TrackStatus;
+  adapters: AdapterKind[];
+  screenshot_available: boolean;
+  symbolic_state_available: boolean;
+  version: string;
+}
+
+export interface RuntimeState {
+  available: boolean;
+  game?: string;
+  symbolic: SymbolicObservation;
+}
+
+export interface RuntimeScreenshot {
+  screenshot_b64?: string;
+  media_type: "image/png";
+  captured_at?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface RuntimeActions {
+  actions: SupportedAction[];
+}
+
+export interface BrainHealth {
+  brain: TrackStatus;
+  runtime: TrackStatus;
+  memory: TrackStatus;
+  features: Record<string, boolean>;
+}
+
+export interface StartAgentLoopRequest {
+  game: string;
+  goal: string;
+  user_constraints: string[];
+  max_cycles: number;
+  research_allowed: boolean;
+}
+
+export interface AgentLoopStatus {
+  running: boolean;
+  game?: string;
+  goal?: string;
+  cycle: number;
+  transition?: string;
+  tracks: Record<string, TrackStatus>;
+  last_event_id?: string;
+}
+
+export interface StartAgentLoopResponse {
+  accepted: boolean;
+  status: AgentLoopStatus;
+}
+
+export interface StopAgentLoopResponse {
+  stopped: boolean;
+  status: AgentLoopStatus;
 }
