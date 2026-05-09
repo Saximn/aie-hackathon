@@ -13,6 +13,15 @@ from dataclasses import dataclass
 
 from models import JsCodeAction, RecoveryTransition
 
+LUA_DENY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("os.execute", re.compile(r"\bos\.execute\s*\(")),
+    ("io.popen", re.compile(r"\bio\.popen\s*\(")),
+    ("load", re.compile(r"\bload\s*\(")),
+    ("loadstring", re.compile(r"\bloadstring\s*\(")),
+    ("dofile", re.compile(r"\bdofile\s*\(")),
+    ("require", re.compile(r"\brequire\s*\(")),
+]
+
 DENY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("require()", re.compile(r"\brequire\s*\(")),
     ("dynamic import", re.compile(r"\bimport\s*\(")),
@@ -42,6 +51,14 @@ class Validator:
                 return ValidationResult(False, RecoveryTransition.REPLAN, f"forbidden token: {label}")
         if len(code) > 32_000:
             return ValidationResult(False, RecoveryTransition.REPLAN, "code too long (>32KB)")
+        return ValidationResult(True, RecoveryTransition.CONTINUE, "")
+
+    def validate_lua(self, code: str) -> ValidationResult:
+        if not code or not code.strip():
+            return ValidationResult(False, RecoveryTransition.REPLAN, "empty code")
+        for label, pattern in LUA_DENY_PATTERNS:
+            if pattern.search(code):
+                return ValidationResult(False, RecoveryTransition.REPLAN, f"forbidden token: {label}")
         return ValidationResult(True, RecoveryTransition.CONTINUE, "")
 
 
