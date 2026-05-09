@@ -8,11 +8,11 @@ export interface SymbolicObservation {
   health?: number;
   hunger?: number;
   inventory: Record<string, number>;
-  nearbyBlocks: string[];
-  nearbyEntities: string[];
+  nearby_blocks: string[];
+  nearby_entities: string[];
   position?: Position;
   biome?: string;
-  rawState: Record<string, unknown>;
+  raw_state: Record<string, unknown>;
 }
 
 export interface BridgeRequest {
