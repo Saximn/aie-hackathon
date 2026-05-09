@@ -1,19 +1,13 @@
-# SkillForge Mineflayer Runtime
+# OmniForge Runtime
 
-Person A owns this package. It is the Minecraft-facing runtime: Mineflayer connection, world perception, primitive action execution, screenshots, and seeded runtime skills.
+Person A owns this package.
 
-## Contract
+This is scaffold-only. It defines the runtime boundary for:
 
-The runtime exposes these endpoints for the AI Brain:
+- generic keyboard/mouse primitive actions
+- optional Minecraft/Mineflayer adapter actions
+- symbolic state capture
+- screenshot capture
+- runtime HTTP endpoints
 
-- `GET /health`
-- `GET /state`
-- `GET /screenshot`
-- `GET /actions`
-- `POST /action`
-
-The runtime should never receive vague goals like "survive the night". It receives one validated `PrimitiveAction` at a time and returns an `ExecutionResult`.
-
-## Scaffold Status
-
-This directory is intentionally scaffold-only. Fill in Mineflayer, HTTP server, and action implementations after the contracts are stable.
+The runtime never receives vague goals like "survive the night". It receives one grounded Primitive Action at a time and returns an Execution Result.

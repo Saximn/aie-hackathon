@@ -1,9 +1,6 @@
-import type { ExecutionResult } from "../types.js";
-
 /**
- * Seeded runtime skill: build a basic dirt shelter at current position.
+ * Optional Minecraft adapter skill stub.
+ *
+ * TODO(Person A): implement only if the demo needs a deterministic reliability path.
  */
-export async function buildDirtShelter(): Promise<ExecutionResult> {
-  // TODO(Person A): place blocks into a safe emergency shelter.
-  return { success: false, result: "TODO: build dirt shelter" };
-}
+export const buildDirtShelterSkillName = "build_dirt_shelter";

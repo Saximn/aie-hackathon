@@ -1,12 +1,9 @@
-"""Imagined future image generation scaffold."""
-
-from models import Plan
+"""Optional visual memory card scaffold."""
 
 
-class Imaginer:
-    """Generates optional plan-linked images for the dashboard."""
+class SkillCardGenerator:
+    """Generates optional visual summaries after a Skill is learned."""
 
-    async def imagine(self, plan: Plan) -> str | None:
-        # TODO(Person B): call GPT Image 2 behind ENABLE_IMAGE_GEN.
-        _ = plan
-        return None
+    async def generate(self, skill_name: str) -> bytes:
+        """TODO(Person B): optional sponsor-track image generation."""
+        raise NotImplementedError("SkillCardGenerator.generate is scaffold-only")

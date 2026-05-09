@@ -10,12 +10,6 @@ class Researcher:
         """Return structured strategy notes for a query.
 
         TODO(Person B): integrate Exa for new game profiles, missing strategy,
-        repeated failures, unknown mechanics, or explicit user coaching such as
-        "learn this game".
+        repeated failures, unknown mechanics, or explicit user coaching.
         """
-        return ResearchNote(
-            query=query,
-            summary="Research integration not implemented. Static profile and local skill memory are active.",
-            source_urls=[],
-            confidence=0.0,
-        )
+        raise NotImplementedError("Researcher.research is scaffold-only")

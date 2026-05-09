@@ -1,22 +1,11 @@
-"""Dashboard event bus scaffold."""
+"""Agent Event stream scaffold."""
 
-from collections.abc import Awaitable, Callable
-
-from models import DashboardEvent
-
-EventSubscriber = Callable[[DashboardEvent], Awaitable[None]]
+from models import AgentEvent
 
 
 class EventBus:
-    """Publishes canonical DashboardEvents to subscribers."""
+    """Broadcasts Agent Events to dashboard subscribers."""
 
-    def __init__(self) -> None:
-        self._subscribers: list[EventSubscriber] = []
-
-    def subscribe(self, subscriber: EventSubscriber) -> None:
-        self._subscribers.append(subscriber)
-
-    async def publish(self, event: DashboardEvent) -> None:
-        # TODO(Person B): add durable event persistence and websocket fanout.
-        for subscriber in self._subscribers:
-            await subscriber(event)
+    async def publish(self, event: AgentEvent) -> None:
+        """TODO(Person B): broadcast over WS and persist via MemoryStore."""
+        raise NotImplementedError("EventBus.publish is scaffold-only")

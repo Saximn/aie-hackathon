@@ -1,27 +1,18 @@
-# SkillForge AI Brain
+# OmniForge AI Brain
 
-Person B owns this package. It orchestrates the AgentLoop, planning, validation, execution dispatch, verification, diagnosis, recovery policy, research, skill learning, memory, and dashboard events.
+Person B owns this package.
 
-## Contract
+This is scaffold-only. It defines the orchestration and contract boundaries for:
 
-The brain consumes the Mineflayer Runtime API:
+- AgentLoop orchestration
+- Game profile creation
+- VLM/world observation
+- GPT-5.5 structured planning
+- action validation and dispatch
+- verification, diagnosis, and recovery policy
+- research hooks
+- skill memory
+- dashboard events
+- optional voice coaching
 
-- `GET /health`
-- `GET /state`
-- `GET /screenshot`
-- `GET /actions`
-- `POST /action`
-
-The brain exposes:
-
-- `GET /health`
-- `POST /start`
-- `POST /stop`
-- `GET /status`
-- `GET /memory`
-- `POST /test_action`
-- `WS /ws`
-
-## Scaffold Status
-
-This directory is intentionally scaffold-only. Implement the core AgentLoop before adding Convex, Exa, image generation, or voice.
+Do not put game-specific execution logic here. The brain sends grounded Primitive Actions to the runtime.

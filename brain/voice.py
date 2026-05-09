@@ -1,12 +1,13 @@
-"""Voice narration scaffold."""
-
-from models import DashboardEvent
+"""Optional voice coaching scaffold."""
 
 
-class VoiceNarrator:
-    """Narrates dashboard events without affecting the control loop."""
+class VoiceCoach:
+    """Accepts optional voice coaching and emits optional spoken responses."""
 
-    async def narrate(self, event: DashboardEvent) -> bytes | None:
-        # TODO(Person B): integrate Gemini or ElevenLabs behind VOICE_PROVIDER.
-        _ = event
-        return None
+    async def transcribe(self, audio: bytes) -> str:
+        """TODO(Person B): optional speech-to-text coaching input."""
+        raise NotImplementedError("VoiceCoach.transcribe is scaffold-only")
+
+    async def speak(self, text: str) -> bytes:
+        """TODO(Person B): optional text-to-speech response."""
+        raise NotImplementedError("VoiceCoach.speak is scaffold-only")

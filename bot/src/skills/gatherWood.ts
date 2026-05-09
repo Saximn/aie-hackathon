@@ -1,9 +1,6 @@
-import type { ExecutionResult } from "../types.js";
-
 /**
- * Seeded runtime skill: gather wood through Mineflayer primitives.
+ * Optional Minecraft adapter skill stub.
+ *
+ * TODO(Person A): implement only if the demo needs a deterministic reliability path.
  */
-export async function gatherWood(count: number): Promise<ExecutionResult> {
-  // TODO(Person A): implement using pathfinding and block mining.
-  return { success: false, result: `TODO: gather ${count} wood` };
-}
+export const gatherWoodSkillName = "gather_wood";

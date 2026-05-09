@@ -1,13 +1,10 @@
 import type { ExecutionResult, PrimitiveAction } from "./types.js";
 
 /**
- * Executes one grounded PrimitiveAction through Mineflayer.
+ * Executes one grounded PrimitiveAction through the selected runtime adapter.
  */
 export async function executeAction(action: PrimitiveAction): Promise<ExecutionResult> {
-  // TODO(Person A): route to Mineflayer movement, mining, crafting, combat, etc.
-  return {
-    actionId: action.id,
-    success: false,
-    result: "TODO: action execution not implemented"
-  };
+  // TODO(Person A): route generic_input actions to keyboard/mouse and
+  // minecraft actions to the optional Mineflayer adapter.
+  throw new Error(`TODO: execute action ${action.id}`);
 }

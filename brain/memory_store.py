@@ -1,19 +1,19 @@
-"""MemoryStore scaffold."""
+"""Memory store scaffold."""
 
-from models import DashboardEvent, Skill
+from models import AgentEvent, Skill
 
 
 class MemoryStore:
-    """Persists episodes, facts, failures, preferences, and skills."""
+    """Persists events, failures, user preferences, and structured Skills."""
 
-    async def append_event(self, event: DashboardEvent) -> None:
-        # TODO(Person B): write to Convex when enabled, otherwise JSON fallback.
-        _ = event
+    async def append_event(self, event: AgentEvent) -> None:
+        """TODO(Person B): write to Convex or local JSON fallback."""
+        raise NotImplementedError("MemoryStore.append_event is scaffold-only")
 
     async def upsert_skill(self, skill: Skill) -> None:
-        # TODO(Person B): persist Skill with confidence and verification metadata.
-        _ = skill
+        """TODO(Person B): persist Skill metadata and verification status."""
+        raise NotImplementedError("MemoryStore.upsert_skill is scaffold-only")
 
     async def context(self) -> str:
-        # TODO(Person B): summarize recent memory for Planner.
-        return ""
+        """TODO(Person B): summarize relevant memories for the Planner."""
+        raise NotImplementedError("MemoryStore.context is scaffold-only")

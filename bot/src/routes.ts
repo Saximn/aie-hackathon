@@ -1,12 +1,17 @@
 import type { PrimitiveAction } from "./types.js";
 
 /**
- * HTTP routes for the Mineflayer Runtime.
- * TODO(Person A): implement GET /health, /state, /screenshot, /actions and
- * POST /action using the selected Node HTTP framework.
+ * HTTP routes for the OmniForge runtime.
+ *
+ * TODO(Person A): implement:
+ * - GET /health
+ * - GET /state
+ * - GET /screenshot
+ * - GET /actions
+ * - POST /action
  */
 export function registerRoutes(): void {
-  throw new Error("TODO: register bot HTTP routes");
+  throw new Error("TODO: register runtime HTTP routes");
 }
 
 export function parseActionRequest(body: unknown): PrimitiveAction {

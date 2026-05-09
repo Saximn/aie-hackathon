@@ -1,10 +1,10 @@
 /**
- * Mineflayer runtime entrypoint.
- * TODO(Person A): create the Mineflayer bot, attach perception/action modules,
- * and start the HTTP server from routes.ts.
+ * OmniForge runtime entrypoint.
+ *
+ * TODO(Person A): start the HTTP server and attach the selected adapters.
  */
 export async function startRuntime(): Promise<void> {
-  throw new Error("TODO: start Mineflayer runtime");
+  throw new Error("TODO: start OmniForge runtime");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

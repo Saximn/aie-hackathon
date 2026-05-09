@@ -1,12 +1,10 @@
 """Shared OmniForge AI Brain contracts.
 
-These models define the module boundaries before implementation. Keep this file
-as the source of truth for Python-side contracts.
+This file is a scaffold contract layer. It should stay implementation-light.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -107,10 +105,10 @@ class GameProfile(BaseModel):
     controls: dict[str, str] = Field(default_factory=dict)
     core_mechanics: list[str] = Field(default_factory=list)
     early_game_objectives: list[str] = Field(default_factory=list)
-    benchmark_goals: list[str] = Field(default_factory=lambda: ["survive_first_night"])
-    adapter_hints: list[AdapterKind] = Field(default_factory=lambda: [AdapterKind.GENERIC_INPUT])
+    benchmark_goals: list[str] = Field(default_factory=list)
+    adapter_hints: list[AdapterKind] = Field(default_factory=list)
     source: Literal["static", "researched", "user"] = "static"
-    confidence: float = 1.0
+    confidence: float = 0.0
 
 
 class VisualObservation(BaseModel):
@@ -226,7 +224,7 @@ class Skill(BaseModel):
 
 class AgentEvent(BaseModel):
     id: str
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str
     event_type: AgentEventType
     cycle: int = 0
     snapshot_id: str | None = None
