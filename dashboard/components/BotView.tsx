@@ -41,7 +41,7 @@ export function BotView() {
     >
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <svg width={CELL * (VIEW_RADIUS * 2 + 1)} height={CELL * (VIEW_RADIUS * 2 + 1)}>
-          {drawGrid()}
+          {drawGrid(nearby)}
           {drawBotMarker()}
         </svg>
         <div style={{ flex: 1 }}>
@@ -79,25 +79,71 @@ function parseNearby(entry: string): NearbyCount {
   return { name: entry.slice(0, idx), count: Number.isFinite(count) ? count : 1 };
 }
 
-function drawGrid() {
+function drawGrid(nearby: NearbyCount[]) {
+  // Distribute non-center cells to block types proportional to their count.
+  // Cells closest to the bot (lower dist) get the most-common block type first.
+  const diameter = VIEW_RADIUS * 2 + 1;
+  const CENTER = VIEW_RADIUS;
+
+  // Collect all cells inside the view radius (excluding the center bot cell),
+  // sorted ascending by distance so common blocks cluster near the bot.
+  const orderedCells: Array<{ gx: number; gy: number; dist: number }> = [];
+  for (let gx = 0; gx < diameter; gx++) {
+    for (let gy = 0; gy < diameter; gy++) {
+      if (gx === CENTER && gy === CENTER) continue;
+      const dist = Math.sqrt((gx - CENTER) ** 2 + (gy - CENTER) ** 2);
+      if (dist <= VIEW_RADIUS) orderedCells.push({ gx, gy, dist });
+    }
+  }
+  orderedCells.sort((a, b) => a.dist - b.dist);
+
+  // Build a flat list of block names proportional to their counts.
+  const totalCount = nearby.reduce((s, n) => s + n.count, 0);
+  const blockNames: string[] = [];
+  if (totalCount > 0) {
+    for (const { name, count } of nearby) {
+      const slots = Math.round((count / totalCount) * orderedCells.length);
+      for (let i = 0; i < slots; i++) blockNames.push(name);
+    }
+  }
+
   const cells = [];
-  for (let x = 0; x < VIEW_RADIUS * 2 + 1; x++) {
-    for (let y = 0; y < VIEW_RADIUS * 2 + 1; y++) {
-      const dx = x - VIEW_RADIUS;
-      const dy = y - VIEW_RADIUS;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const fill = dist > VIEW_RADIUS ? "transparent" : "rgba(79,156,255,0.04)";
-      cells.push(
-        <rect
-          key={`${x}-${y}`}
-          x={x * CELL}
-          y={y * CELL}
-          width={CELL - 1}
-          height={CELL - 1}
-          fill={fill}
-          stroke="rgba(255,255,255,0.04)"
-        />
-      );
+  for (let i = 0; i < orderedCells.length; i++) {
+    const { gx, gy, dist } = orderedCells[i];
+    const blockName = blockNames[i];
+    const fill = blockName
+      ? blockColorRgba(blockName, Math.max(0.35, 1 - dist / (VIEW_RADIUS + 1)))
+      : "rgba(79,156,255,0.04)";
+    cells.push(
+      <rect
+        key={`${gx}-${gy}`}
+        x={gx * CELL}
+        y={gy * CELL}
+        width={CELL - 1}
+        height={CELL - 1}
+        fill={fill}
+        stroke="rgba(255,255,255,0.04)"
+      >
+        {blockName && <title>{blockName}</title>}
+      </rect>
+    );
+  }
+  // Add the transparent out-of-radius cells last (behind everything).
+  for (let gx = 0; gx < diameter; gx++) {
+    for (let gy = 0; gy < diameter; gy++) {
+      const dist = Math.sqrt((gx - CENTER) ** 2 + (gy - CENTER) ** 2);
+      if (dist > VIEW_RADIUS) {
+        cells.push(
+          <rect
+            key={`oob-${gx}-${gy}`}
+            x={gx * CELL}
+            y={gy * CELL}
+            width={CELL - 1}
+            height={CELL - 1}
+            fill="transparent"
+          />
+        );
+      }
     }
   }
   return cells;
@@ -175,4 +221,18 @@ const BLOCK_COLOR_MAP: Record<string, string> = {
 
 function blockColor(name: string): string {
   return BLOCK_COLOR_MAP[name] ?? "var(--text)";
+}
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return null;
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+function blockColorRgba(name: string, alpha: number): string {
+  const hex = BLOCK_COLOR_MAP[name];
+  if (!hex) return `rgba(79,156,255,${(alpha * 0.3).toFixed(2)})`;
+  const rgb = hexToRgb(hex);
+  if (!rgb) return `rgba(79,156,255,${(alpha * 0.3).toFixed(2)})`;
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha.toFixed(2)})`;
 }

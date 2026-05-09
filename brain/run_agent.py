@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 from agent_loop import AgentLoop
 from bot_client import BotClient
+from diagnoser import Diagnoser
 from event_bus import default_bus
 from memory_store import MemoryStore
 from voice import Narrator
@@ -99,6 +100,7 @@ async def _amain(args: argparse.Namespace) -> int:
         memory=memory,
         event_bus=default_bus(),
         narrator=narrator,
+        diagnoser=Diagnoser(memory=memory),
     )
 
     task_queue: list[str]
@@ -126,14 +128,20 @@ async def _amain(args: argparse.Namespace) -> int:
             if sig is not None:
                 running_loop.add_signal_handler(sig, _on_signal)
 
+    outcome = "error"
     try:
         result = await loop.run_episode(
             task_queue=task_queue,
             max_cycles=args.max_cycles,
             use_curriculum=use_curriculum,
         )
+        outcome = "completed"
     finally:
         narrator.shutdown()
+        try:
+            await memory.finish_episode(outcome=outcome)
+        except Exception as exc:
+            LOG.warning("finish_episode failed: %s", exc)
         await bot_client.stop()
     LOG.info("episode done: %s", result)
     return 0

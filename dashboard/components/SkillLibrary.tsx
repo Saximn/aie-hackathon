@@ -6,7 +6,7 @@ import { api } from "../lib/convex_api";
 import { Panel } from "./Panel";
 
 export function SkillLibrary() {
-  const skills = useQuery(api.skills.list, { episodeId: null });
+  const skills = useQuery(api.skills.list, { episodeId: null, limit: 100 });
   const [openName, setOpenName] = useState<string | null>(null);
 
   if (!skills) {

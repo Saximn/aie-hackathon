@@ -7,11 +7,16 @@ depending on the older primitive-action API contracts.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from event_bus import default_bus
+
+_NARRATION_DIR = Path(os.getenv("OMNIPLAY_NARRATION_DIR", "outputs/narration"))
 
 app = FastAPI(title="OmniPlay-MC AI Brain")
 _status: dict[str, Any] = {
@@ -80,6 +85,16 @@ async def memory() -> dict[str, object]:
         "skills": skills,
         "event_count": len(events),
     }
+
+
+@app.get("/narration/{clip_id}")
+async def serve_narration(clip_id: str) -> FileResponse:
+    """Serve a rendered narration MP3 so the dashboard NarrationPlayer can autoplay."""
+    safe_id = "".join(c for c in clip_id if c.isalnum() or c in "-_")
+    path = _NARRATION_DIR / f"{safe_id}.mp3"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"clip {safe_id} not found")
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.websocket("/ws")

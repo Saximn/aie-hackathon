@@ -38,7 +38,7 @@ export const updateAudio = mutation({
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("narration_clips")
-      .filter((q) => q.eq(q.field("clipId"), args.id))
+      .withIndex("by_clipId", (q) => q.eq("clipId", args.id))
       .first();
     if (!row) return null;
     await ctx.db.patch(row._id, {

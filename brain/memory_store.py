@@ -27,7 +27,7 @@ from voyager_agents.skill import SkillManager, SkillRecord
 
 LOG = logging.getLogger("omniplay.memory")
 
-LOCAL_DIR = Path(os.getenv("OMNIPLAY_LOCAL_MEMORY", ".omniplay-memory"))
+DEFAULT_LOCAL_DIR = ".omniplay-memory"
 
 
 class MemoryStore:
@@ -41,6 +41,7 @@ class MemoryStore:
         self.skill_manager = skill_manager
         self.convex_url = convex_url or os.getenv("CONVEX_URL")
         self.episode_id = episode_id or datetime.now(timezone.utc).strftime("ep-%Y%m%dT%H%M%S")
+        self.local_dir = Path(os.getenv("OMNIPLAY_LOCAL_MEMORY", DEFAULT_LOCAL_DIR))
         self._client: ConvexClient | None = None
         if self.convex_url:
             try:
@@ -52,8 +53,8 @@ class MemoryStore:
                 LOG.warning("ConvexClient init failed (%s); falling back to local JSON", exc)
                 self._client = None
         if self._client is None:
-            LOCAL_DIR.mkdir(parents=True, exist_ok=True)
-            LOG.info("local memory store at %s (episode %s)", LOCAL_DIR.resolve(), self.episode_id)
+            self.local_dir.mkdir(parents=True, exist_ok=True)
+            LOG.info("local memory store at %s (episode %s)", self.local_dir.resolve(), self.episode_id)
 
     @property
     def using_convex(self) -> bool:
@@ -118,6 +119,17 @@ class MemoryStore:
         else:
             self._append_local("skills.jsonl", payload)
 
+    async def finish_episode(self, *, outcome: str) -> None:
+        meta = {
+            "episodeId": self.episode_id,
+            "endedAt": datetime.now(timezone.utc).isoformat(),
+            "status": outcome,
+        }
+        if self._client is not None:
+            await asyncio.to_thread(self._safe_mutation, "episodes:finish", meta)
+        else:
+            self._append_local("episodes.jsonl", meta)
+
     async def add_narration(self, clip: NarrationClip) -> None:
         payload = {
             "episodeId": self.episode_id,
@@ -134,6 +146,42 @@ class MemoryStore:
             await asyncio.to_thread(self._safe_mutation, "narration:add", payload)
         else:
             self._append_local("narration.jsonl", payload)
+
+    async def update_narration_audio(
+        self,
+        *,
+        clip_id: str,
+        audio_url: str | None,
+        audio_path: str | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"id": clip_id, "audioUrl": audio_url, "audioPath": audio_path}
+        if self._client is not None:
+            await asyncio.to_thread(self._safe_mutation, "narration:updateAudio", payload)
+        else:
+            self._append_local("narration_audio_updates.jsonl", payload)
+
+    async def add_lesson(
+        self,
+        *,
+        lesson_id: str,
+        summary: str,
+        failure_type: str | None,
+        triggered_by_task: str,
+        code_excerpt: str | None = None,
+    ) -> None:
+        payload = {
+            "episodeId": self.episode_id,
+            "id": lesson_id,
+            "summary": summary,
+            "failureType": failure_type,
+            "triggeredByTask": triggered_by_task,
+            "codeExcerpt": code_excerpt,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+        if self._client is not None:
+            await asyncio.to_thread(self._safe_mutation, "lessons:add", payload)
+        else:
+            self._append_local("lessons.jsonl", payload)
 
     async def list_skills(self) -> list[SkillRecord]:
         """Cloud → local mirror. Used at boot to hydrate Chroma."""
@@ -196,18 +244,18 @@ class MemoryStore:
         return self._client.query(name, payload)
 
     def _append_local(self, filename: str, payload: dict[str, Any]) -> None:
-        LOCAL_DIR.mkdir(parents=True, exist_ok=True)
-        path = LOCAL_DIR / filename
+        self.local_dir.mkdir(parents=True, exist_ok=True)
+        path = self.local_dir / filename
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(_json_safe(payload), ensure_ascii=False) + "\n")
 
     def _write_local(self, filename: str, payload: dict[str, Any]) -> None:
-        LOCAL_DIR.mkdir(parents=True, exist_ok=True)
-        path = LOCAL_DIR / filename
+        self.local_dir.mkdir(parents=True, exist_ok=True)
+        path = self.local_dir / filename
         path.write_text(json.dumps(_json_safe(payload), ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _read_local_jsonl(self, filename: str) -> list[dict[str, Any]]:
-        path = LOCAL_DIR / filename
+        path = self.local_dir / filename
         if not path.exists():
             return []
         rows: list[dict[str, Any]] = []

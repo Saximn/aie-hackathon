@@ -84,10 +84,24 @@ def _env(key: str) -> str:
     return os.environ.get(key, "")
 
 
+def _resolve_cmd(name: str) -> str:
+    """On Windows, resolve e.g. 'npx' → 'npx.CMD' via shutil.which."""
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        for ext in (".CMD", ".cmd", ".EXE", ".exe", ".BAT", ".bat"):
+            found = shutil.which(name + ext)
+            if found:
+                return found
+    return name  # fall back; let subprocess raise naturally
+
+
 def _run(*args: str, cwd: pathlib.Path | None = None) -> tuple[int, str]:
+    resolved = [_resolve_cmd(args[0])] + list(args[1:]) if args else []
     try:
         r = subprocess.run(
-            list(args),
+            resolved,
             capture_output=True, text=True,
             cwd=str(cwd) if cwd else None,
             timeout=15,
