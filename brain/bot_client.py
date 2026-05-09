@@ -222,5 +222,27 @@ class BotClient:
     async def ping(self) -> dict[str, Any]:
         return await self.call("ping", timeout=5.0)
 
+    async def keep_alive(self, interval: float = 20.0) -> None:
+        """Send periodic pings so Minecraft doesn't kick an idle bot.
+
+        Run as a background asyncio.Task while the AgentLoop is active.
+        Survives individual ping failures — logs a warning and keeps going.
+        Raises CancelledError cleanly when the task is cancelled.
+
+        The default 20-second interval beats the typical Mineflayer idle-kick
+        threshold (~30s) while adding negligible overhead. Preventing one
+        idle-kick saves the ~30-60s reconnect round-trip that would otherwise
+        stall the agent between planning and execution.
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.ping()
+                LOG.debug("keepalive ping ok")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOG.warning("keepalive ping failed (non-fatal): %s", exc)
+
 
 __all__ = ["BotClient", "BridgeError", "RunJsResult"]

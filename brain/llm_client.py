@@ -11,10 +11,10 @@ Use the Responses API exclusively (not legacy chat completions) per CONTEXT.md.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,7 +24,17 @@ from pydantic import BaseModel
 LOG = logging.getLogger("omniplay.llm")
 
 DEFAULT_MODEL = os.getenv("GPT_MODEL", "gpt-5.5")
-DEFAULT_REASONING_EFFORT = os.getenv("GPT_REASONING_EFFORT", "medium")
+
+# Reasoning effort routing:
+# - BRAIN_REASONING_EFFORT controls the default for action-generation calls
+#   (the hot path).  Lowering this from "high" to "medium"/"low" trims several
+#   seconds per planning call at minimal quality cost.
+# - GPT_REASONING_EFFORT is the legacy var; if set it still wins.
+# Per-call overrides are honoured (e.g. critic can pass effort="high").
+DEFAULT_REASONING_EFFORT = os.getenv(
+    "GPT_REASONING_EFFORT",
+    os.getenv("BRAIN_REASONING_EFFORT", "medium"),
+)
 DEFAULT_EMBED_MODEL = os.getenv("GPT_EMBED_MODEL", "text-embedding-3-small")
 
 
@@ -186,10 +196,19 @@ class LLMClient:
         if schema is not None:
             kwargs["text"] = {"format": _schema_from_pydantic(schema)}
 
+        _t0 = time.perf_counter()
         response = self._client.responses.create(**kwargs)
+        _elapsed = time.perf_counter() - _t0
+
         text = _extract_text(response)
         usage = _coerce_usage(getattr(response, "usage", None))
         _TRACKER.add(usage)
+        LOG.info(
+            "[timing] openai %s tokens_in=%d elapsed=%.1fs",
+            self.model,
+            usage.input_tokens,
+            _elapsed,
+        )
 
         parsed: Any = None
         if schema is not None:
@@ -241,6 +260,35 @@ class LLMClient:
             LOG.error("structured retry parse failed: %s", exc)
             return None
 
+    def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+    ) -> str:
+        """Stream a chat completion and return the fully collected text.
+
+        Uses ``chat.completions.create(stream=True)`` for reduced perceived
+        latency (~1-2s to first token vs ~25-30s blocking).  Does not support
+        structured output or reasoning effort — use :meth:`complete` for those.
+        """
+        _t0 = time.perf_counter()
+        effective_model = model or self.model
+        stream = self._client.chat.completions.create(
+            model=effective_model,
+            messages=messages,
+            stream=True,
+        )
+        chunks: list[str] = []
+        for chunk in stream:
+            if chunk.choices:
+                delta_content = chunk.choices[0].delta.content
+                if delta_content:
+                    chunks.append(delta_content)
+        _elapsed = time.perf_counter() - _t0
+        LOG.info("[timing] openai stream %s elapsed=%.1fs", effective_model, _elapsed)
+        return "".join(chunks)
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Batch-embed strings via `text-embedding-3-small` (or override)."""
         if not texts:
@@ -270,6 +318,7 @@ def default_client() -> LLMClient:
 
 __all__ = [
     "DEFAULT_MODEL",
+    "DEFAULT_REASONING_EFFORT",
     "LLMClient",
     "LLMResponse",
     "LLMShapeError",

@@ -52,6 +52,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--task", help="Single task to run; bypasses curriculum agent.")
     parser.add_argument("--demo", action="store_true", help="Run the canned demo curriculum.")
     parser.add_argument("--curriculum", action="store_true", help="Use the GPT-5.5 curriculum agent for tasks.")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        default=(os.getenv("AGENT_MODE", "").lower() == "interactive"),
+        help=(
+            "Wait for tasks posted to POST /prompt instead of running a fixed curriculum. "
+            "Equivalent to AGENT_MODE=interactive."
+        ),
+    )
     parser.add_argument("--max-cycles", type=int, default=int(os.getenv("MAX_CYCLES", "50")))
     parser.add_argument("--host", default=os.getenv("MINECRAFT_HOST", "localhost"))
     parser.add_argument("--port", type=int, default=int(os.getenv("MINECRAFT_PORT", "25565")))
@@ -70,18 +79,83 @@ def _configure_logging(level_name: str) -> None:
     )
 
 
+async def _interactive_episode(loop: AgentLoop, args: argparse.Namespace) -> str:
+    """Drain tasks from the shared POST /prompt queue one at a time.
+
+    Blocks until Ctrl+C or a signal is received. Each task is run as a
+    single-task episode so the agent picks it up, plans, executes, and
+    waits for the next prompt.
+    """
+    import main as _main_mod  # import here to avoid circular at module level
+
+    print(
+        f"\n[OmniPlay-MC] Ready for tasks.\n"
+        f"  POST http://localhost:8000/prompt  -d '{{\"task\": \"your task here\"}}'\n"
+        f"  Press Ctrl+C to stop.\n",
+        flush=True,
+    )
+    LOG.info("[interactive] waiting for tasks via POST /prompt ...")
+
+    stop_event = asyncio.Event()
+
+    def _on_signal(*_: object) -> None:
+        LOG.info("signal received; stopping interactive loop")
+        stop_event.set()
+
+    if sys.platform != "win32":
+        running_loop = asyncio.get_running_loop()
+        for sig_name in ("SIGINT", "SIGTERM"):
+            sig = getattr(signal, sig_name, None)
+            if sig is not None:
+                running_loop.add_signal_handler(sig, _on_signal)
+
+    while not stop_event.is_set():
+        if _main_mod.task_queue:
+            task = _main_mod.task_queue.pop(0)
+            LOG.info("[interactive] starting task: %r", task)
+            try:
+                await loop.run_episode(
+                    task_queue=[task],
+                    max_cycles=args.max_cycles,
+                    use_curriculum=False,
+                )
+            except Exception as exc:
+                LOG.error("[interactive] task %r raised: %s", task, exc)
+        else:
+            await asyncio.sleep(0.5)
+
+    return "interactive_stopped"
+
+
 async def _amain(args: argparse.Namespace) -> int:
     skill_manager = SkillManager()
     memory = MemoryStore(skill_manager=skill_manager)
     hydrated = await memory.hydrate_skills_into_chroma()
-    LOG.info("hydrated %d skills from %s", hydrated, "convex" if memory.using_convex else "local")
-    LOG.info("chroma skill count at boot: %d", skill_manager.count())
+    LOG.info(
+        "[startup] skills=%d source=%s",
+        hydrated,
+        "convex" if memory.using_convex else "local",
+    )
+    LOG.info(
+        "[startup] chroma_skill_count=%d host=%s port=%d username=%s",
+        skill_manager.count(),
+        args.host,
+        args.port,
+        args.username,
+    )
 
     bot_client = BotClient()
     await bot_client.start()
+    keepalive_task: asyncio.Task | None = None
     try:
         await bot_client.connect(host=args.host, port=args.port, username=args.username, version=args.mc_version)
-        LOG.info("mineflayer connected to %s:%s as %s", args.host, args.port, args.username)
+        LOG.info("[startup] mineflayer connected to %s:%d as %s", args.host, args.port, args.username)
+
+        # Background keepalive prevents Minecraft from kicking the bot during
+        # long OpenAI planning waits (~30s). Saves a full reconnect round-trip
+        # (~30-60s) per idle-kick event.
+        keepalive_task = asyncio.create_task(bot_client.keep_alive(interval=20.0))
+        LOG.info("[startup] keepalive task started (interval=20s)")
     except Exception as exc:
         LOG.error("mineflayer connect failed: %s", exc)
         await bot_client.stop()
@@ -94,7 +168,7 @@ async def _amain(args: argparse.Namespace) -> int:
     else:
         LOG.info("narrator disabled (no ELEVENLABS_API_KEY)")
 
-    loop = AgentLoop(
+    agent_loop = AgentLoop(
         bot_client=bot_client,
         skill_manager=skill_manager,
         memory=memory,
@@ -103,40 +177,56 @@ async def _amain(args: argparse.Namespace) -> int:
         diagnoser=Diagnoser(memory=memory),
     )
 
-    task_queue: list[str]
     use_curriculum = False
-    if args.task:
-        task_queue = [args.task]
+    if args.interactive:
+        task_queue_local: list[str] = []
+        use_interactive = True
+    elif args.task:
+        task_queue_local = [args.task]
+        use_interactive = False
     elif args.demo:
-        task_queue = list(DEMO_CURRICULUM)
+        task_queue_local = list(DEMO_CURRICULUM)
+        use_interactive = False
     elif args.curriculum:
-        task_queue = []
+        task_queue_local = []
         use_curriculum = True
+        use_interactive = False
     else:
-        task_queue = ["chop a tree and collect 1 oak_log"]
+        task_queue_local = ["chop a tree and collect 1 oak_log"]
+        use_interactive = False
 
-    stop_event = asyncio.Event()
+    if not args.interactive:
+        stop_event = asyncio.Event()
 
-    def _on_signal(*_: object) -> None:
-        LOG.info("signal received; stopping after current cycle")
-        stop_event.set()
+        def _on_signal(*_: object) -> None:
+            LOG.info("signal received; stopping after current cycle")
+            stop_event.set()
 
-    if sys.platform != "win32":
-        running_loop = asyncio.get_running_loop()
-        for sig_name in ("SIGINT", "SIGTERM"):
-            sig = getattr(signal, sig_name, None)
-            if sig is not None:
-                running_loop.add_signal_handler(sig, _on_signal)
+        if sys.platform != "win32":
+            running_loop = asyncio.get_running_loop()
+            for sig_name in ("SIGINT", "SIGTERM"):
+                sig = getattr(signal, sig_name, None)
+                if sig is not None:
+                    running_loop.add_signal_handler(sig, _on_signal)
 
     outcome = "error"
     try:
-        result = await loop.run_episode(
-            task_queue=task_queue,
-            max_cycles=args.max_cycles,
-            use_curriculum=use_curriculum,
-        )
+        if use_interactive:
+            result = await _interactive_episode(agent_loop, args)
+        else:
+            result = await agent_loop.run_episode(
+                task_queue=task_queue_local,
+                max_cycles=args.max_cycles,
+                use_curriculum=use_curriculum,
+            )
         outcome = "completed"
     finally:
+        if keepalive_task is not None:
+            keepalive_task.cancel()
+            try:
+                await keepalive_task
+            except asyncio.CancelledError:
+                pass
         narrator.shutdown()
         try:
             await memory.finish_episode(outcome=outcome)
