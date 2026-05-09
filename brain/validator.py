@@ -1,85 +1,48 @@
-"""Plan and action validation rules."""
+"""JS-code validator for OmniPlay-MC.
 
+We block obvious escape hatches before handing code to the bridge. The bridge
+itself runs the body inside an `(async (...) => { ... })()` wrapper with only
+named arguments in scope, but a static check catches outright dangerous calls
+earlier (and produces a clearer dashboard message).
+"""
+
+from __future__ import annotations
+
+import re
 from dataclasses import dataclass
-from typing import Any, Callable
 
-from models import Plan, PrimitiveAction, PrimitiveActionType, RecoveryTransition
+from models import JsCodeAction, RecoveryTransition
+
+DENY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("require()", re.compile(r"\brequire\s*\(")),
+    ("dynamic import", re.compile(r"\bimport\s*\(")),
+    ("process.*", re.compile(r"\bprocess\s*\.")),
+    ("fs/path", re.compile(r"\b(?:fs|path|os|child_process)\s*\.")),
+    ("http", re.compile(r"\b(?:fetch|XMLHttpRequest|http\s*\.|https\s*\.)")),
+    ("eval", re.compile(r"\beval\s*\(")),
+    ("Function ctor", re.compile(r"\bnew\s+Function\s*\(")),
+    ("global", re.compile(r"\b(?:globalThis|global)\s*\.")),
+]
 
 
 @dataclass(frozen=True)
 class ValidationResult:
+    ok: bool
     status: RecoveryTransition
     reason: str = ""
 
 
 class Validator:
-    """Rejects unsupported, vague, or malformed Plans before execution."""
-
-    def validate_plan(self, plan: Plan) -> ValidationResult:
-        if not plan.actions:
-            return ValidationResult(
-                status=RecoveryTransition.REPLAN,
-                reason="plan must include at least one action",
-            )
-
-        seen_ids: set[str] = set()
-        for action in plan.actions:
-            if action.id in seen_ids:
-                return ValidationResult(
-                    status=RecoveryTransition.REPLAN,
-                    reason=f"duplicate action id: {action.id}",
-                )
-            seen_ids.add(action.id)
-
-            result = self.validate_action(action)
-            if result.status != RecoveryTransition.CONTINUE:
-                return result
-
-        return ValidationResult(status=RecoveryTransition.CONTINUE)
-
-    def validate_action(self, action: PrimitiveAction) -> ValidationResult:
-        required = _ACTION_REQUIREMENTS.get(action.type)
-        if required is None:
-            return ValidationResult(
-                status=RecoveryTransition.REPLAN,
-                reason=f"{action.type} is not configured for validation",
-            )
-
-        missing = [name for name, predicate in required if not predicate(action.args.get(name))]
-        if missing:
-            return ValidationResult(
-                status=RecoveryTransition.REPLAN,
-                reason=f"{action.type} requires valid args: {', '.join(missing)}",
-            )
-
-        return ValidationResult(status=RecoveryTransition.CONTINUE)
+    def validate_action(self, action: JsCodeAction) -> ValidationResult:
+        code = action.code
+        if not code or not code.strip():
+            return ValidationResult(False, RecoveryTransition.REPLAN, "empty code")
+        for label, pattern in DENY_PATTERNS:
+            if pattern.search(code):
+                return ValidationResult(False, RecoveryTransition.REPLAN, f"forbidden token: {label}")
+        if len(code) > 32_000:
+            return ValidationResult(False, RecoveryTransition.REPLAN, "code too long (>32KB)")
+        return ValidationResult(True, RecoveryTransition.CONTINUE, "")
 
 
-def _present(value: Any) -> bool:
-    return value is not None and value != ""
-
-
-def _number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-def _positive_number(value: Any) -> bool:
-    return _number(value) and value > 0
-
-
-ArgRule = tuple[str, Callable[[Any], bool]]
-
-_ACTION_REQUIREMENTS: dict[PrimitiveActionType, tuple[ArgRule, ...]] = {
-    PrimitiveActionType.PRESS_KEY: (("key", _present),),
-    PrimitiveActionType.HOLD_KEY: (("key", _present), ("duration_ms", _positive_number)),
-    PrimitiveActionType.MOVE_MOUSE: (("dx", _number), ("dy", _number)),
-    PrimitiveActionType.CLICK: (("button", _present),),
-    PrimitiveActionType.WAIT: (("duration_ms", _positive_number),),
-    PrimitiveActionType.OPEN_MENU: (),
-    PrimitiveActionType.SELECT_HOTBAR_SLOT: (("slot", lambda value: isinstance(value, int) and 1 <= value <= 9),),
-    PrimitiveActionType.MOVE_TOWARD_VISIBLE_OBJECT: (("object", _present),),
-    PrimitiveActionType.INTERACT_PRIMARY: (),
-    PrimitiveActionType.COLLECT_BLOCK: (("block", _present),),
-    PrimitiveActionType.CRAFT_ITEM: (("item", _present),),
-    PrimitiveActionType.BUILD_SHELTER: (("material", _present),),
-}
+__all__ = ["ValidationResult", "Validator"]

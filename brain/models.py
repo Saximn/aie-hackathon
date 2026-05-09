@@ -93,13 +93,6 @@ class AgentEventType(StrEnum):
     USER_INSTRUCTION_RECEIVED = "user_instruction_received"
 
 
-class TrackStatus(StrEnum):
-    READY = "ready"
-    DEGRADED = "degraded"
-    UNAVAILABLE = "unavailable"
-    UNKNOWN = "unknown"
-
-
 class Position(BaseModel):
     x: float
     y: float
@@ -114,7 +107,7 @@ class GameProfile(BaseModel):
     early_game_objectives: list[str] = Field(default_factory=list)
     benchmark_goals: list[str] = Field(default_factory=list)
     adapter_hints: list[AdapterKind] = Field(default_factory=list)
-    source: Literal["static", "researched", "user", "fallback"] = "static"
+    source: Literal["static", "researched", "user"] = "static"
     confidence: float = 0.0
 
 
@@ -179,39 +172,6 @@ class ExecutionResult(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
-class SupportedAction(BaseModel):
-    type: PrimitiveActionType
-    adapter: AdapterKind
-    description: str
-    required_args: list[str] = Field(default_factory=list)
-
-
-class RuntimeHealth(BaseModel):
-    runtime: TrackStatus = TrackStatus.UNKNOWN
-    adapters: list[AdapterKind] = Field(default_factory=list)
-    screenshot_available: bool = False
-    symbolic_state_available: bool = False
-    version: str = "unknown"
-
-
-class RuntimeState(BaseModel):
-    available: bool = False
-    game: str | None = None
-    symbolic: SymbolicObservation = Field(default_factory=SymbolicObservation)
-
-
-class RuntimeScreenshot(BaseModel):
-    screenshot_b64: str | None = None
-    media_type: str = "image/png"
-    captured_at: str | None = None
-    width: int | None = None
-    height: int | None = None
-
-
-class RuntimeActions(BaseModel):
-    actions: list[SupportedAction] = Field(default_factory=list)
-
-
 class VerificationResult(BaseModel):
     action_id: str
     status: VerificationStatus
@@ -271,36 +231,38 @@ class AgentEvent(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-class BrainHealth(BaseModel):
-    brain: TrackStatus = TrackStatus.READY
-    runtime: TrackStatus = TrackStatus.UNKNOWN
-    memory: TrackStatus = TrackStatus.UNKNOWN
-    features: dict[str, bool] = Field(default_factory=dict)
+class JsCodeAction(BaseModel):
+    """A single Voyager-style code-as-policy action.
+
+    `code` is an async JS body that the Mineflayer bridge wraps in
+    `(async (bot, mcData, Vec3, goals, Movements) => { ... })()` and evaluates.
+    Stored as part of an observability `Plan` for the dashboard so judges can
+    read what the agent attempted.
+    """
+
+    id: str
+    name: str = "unnamed_skill"
+    description: str = ""
+    code: str
+    expected_outcome: str = ""
+    timeout_ms: int = 60_000
 
 
-class StartAgentLoopRequest(BaseModel):
-    game: str
-    goal: str
-    user_constraints: list[str] = Field(default_factory=list)
-    max_cycles: int = 1
-    research_allowed: bool = True
+class NarrationClip(BaseModel):
+    id: str
+    text: str
+    voice_id: str | None = None
+    audio_url: str | None = None
+    audio_path: str | None = None
+    duration_ms: int | None = None
+    created_at: str
+    triggered_by: AgentEventType | None = None
 
 
-class AgentLoopStatus(BaseModel):
-    running: bool = False
-    game: str | None = None
-    goal: str | None = None
-    cycle: int = 0
-    transition: RecoveryTransition | None = None
-    tracks: dict[str, TrackStatus] = Field(default_factory=dict)
-    last_event_id: str | None = None
-
-
-class StartAgentLoopResponse(BaseModel):
-    accepted: bool
-    status: AgentLoopStatus
-
-
-class StopAgentLoopResponse(BaseModel):
-    stopped: bool
-    status: AgentLoopStatus
+class Lesson(BaseModel):
+    id: str
+    summary: str
+    failure_type: FailureType | None = None
+    triggered_by_task: str
+    code_excerpt: str | None = None
+    created_at: str

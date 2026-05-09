@@ -1,23 +1,47 @@
-"""Primitive Action execution."""
+"""Code-as-policy executor for OmniPlay-MC.
 
-from bot_client import BotClient
-from models import ExecutionResult, PrimitiveAction
+Runs a `JsCodeAction` through the Mineflayer bridge. The brain's planner emits
+JS bodies; this module wraps them in an `ExecutionResult` so the AgentLoop can
+hand the outcome to the critic.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from bot_client import BotClient, RunJsResult
+from models import ExecutionResult, JsCodeAction
+
+LOG = logging.getLogger("omniplay.executor")
 
 
 class Executor:
-    """Dispatches validated PrimitiveActions to the runtime."""
+    """Runs `JsCodeAction`s via the Mineflayer JSON-RPC bridge."""
 
-    def __init__(self, bot_client: BotClient | None = None) -> None:
-        self._bot_client = bot_client or BotClient()
+    def __init__(self, *, client: BotClient) -> None:
+        self.client = client
 
-    async def execute(self, action: PrimitiveAction) -> ExecutionResult:
-        """Run a PrimitiveAction without reasoning at execution time."""
-        try:
-            return await self._bot_client.execute(action)
-        except Exception as exc:
-            return ExecutionResult(
+    async def execute(self, action: JsCodeAction) -> tuple[ExecutionResult, RunJsResult]:
+        LOG.info("executing %s (%d chars, timeout %dms)", action.name, len(action.code), action.timeout_ms)
+        run = await self.client.run_js(action.code, timeout_ms=action.timeout_ms)
+        evidence = {
+            "durationMs": run.duration_ms,
+            "stateAfter": run.state_after,
+            "result": run.result,
+            "error": run.error,
+        }
+        if run.ok:
+            description = str(run.result) if run.result is not None else "ok"
+            result = ExecutionResult(action_id=action.id, success=True, result=description, evidence=evidence)
+        else:
+            err = run.error or {}
+            result = ExecutionResult(
                 action_id=action.id,
                 success=False,
-                result=f"runtime unavailable: {type(exc).__name__}",
-                evidence={"error": str(exc)},
+                result=str(err.get("message", "unknown error")),
+                evidence=evidence,
             )
+        return result, run
+
+
+__all__ = ["Executor"]

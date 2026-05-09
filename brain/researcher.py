@@ -1,69 +1,25 @@
-"""External game knowledge retrieval."""
+"""Researcher — out-of-scope for the hackathon build.
+
+OmniPlay-MC does not call external strategy retrieval. Module preserved so the
+AgentLoop / event taxonomy stays consistent. If implemented later, drop in an
+Exa or Hyperspell client here and route via `RecoveryTransition.RESEARCH`.
+"""
 
 from __future__ import annotations
 
-from typing import Protocol
+import logging
 
 from models import ResearchNote
 
-
-class ResearchProvider(Protocol):
-    """Adapter seam for retrieval providers hidden behind Researcher."""
-
-    async def search(self, query: str) -> ResearchNote:
-        """Return a structured Research Note for the query."""
+LOG = logging.getLogger("omniplay.researcher")
 
 
 class Researcher:
-    """Retrieves game profile and strategy knowledge when the AgentLoop asks."""
+    enabled: bool = False
 
-    def __init__(self, provider: ResearchProvider | None = None) -> None:
-        self._provider = provider or NoopResearchProvider()
-
-    async def research(self, query: str) -> ResearchNote:
-        """Return structured strategy notes for a query."""
-        clean_query = " ".join(query.split())
-        if not clean_query:
-            return ResearchNote(
-                query=query,
-                summary="No research query was provided.",
-                confidence=0.0,
-            )
-
-        try:
-            note = await self._provider.search(clean_query)
-        except Exception as exc:
-            return ResearchNote(
-                query=clean_query,
-                summary=f"Research unavailable: {type(exc).__name__}",
-                source_urls=[],
-                confidence=0.0,
-            )
-
-        return ResearchNote(
-            query=clean_query,
-            summary=note.summary.strip(),
-            source_urls=_dedupe_urls(note.source_urls),
-            confidence=max(0.0, min(1.0, note.confidence)),
-        )
+    async def lookup(self, query: str) -> ResearchNote | None:
+        LOG.debug("researcher disabled; ignoring query: %s", query)
+        return None
 
 
-class NoopResearchProvider:
-    """Default adapter that keeps external retrieval optional."""
-
-    async def search(self, query: str) -> ResearchNote:
-        return ResearchNote(
-            query=query,
-            summary="No research provider is configured.",
-            source_urls=[],
-            confidence=0.0,
-        )
-
-
-def _dedupe_urls(urls: list[str]) -> list[str]:
-    deduped: list[str] = []
-    for url in urls:
-        clean_url = url.strip()
-        if clean_url and clean_url not in deduped:
-            deduped.append(clean_url)
-    return deduped
+__all__ = ["Researcher"]

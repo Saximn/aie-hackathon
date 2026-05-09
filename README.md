@@ -1,36 +1,143 @@
-# OmniForge
+# OmniPlay-MC (Voyager-Plus)
 
-OmniForge is a game-agnostic open-world agent architecture, first benchmarked on Minecraft/Minetest.
+An observable, self-improving Minecraft AI agent built on **GPT-5.5**, with persistent skill memory, a public live-observability dashboard, and ElevenLabs narration.
 
-The current repo state is scaffold-only. It defines contracts, module boundaries, and ownership so two people can implement in parallel without making hidden architecture decisions.
+> Modernized fork of [MineDojo/Voyager](https://github.com/MineDojo/Voyager): same curriculum / action / critic / skill loop, rebuilt around the OpenAI Responses API + Structured Outputs, the `convex` Python client, and a Next.js 14 dashboard.
 
-## Pitch
+## What it does
 
-OmniForge learns how to play slow open-world games by researching the game, observing the screen with a VLM, planning grounded primitive actions with GPT-5.5, controlling the game through keyboard/mouse or an optional game adapter, diagnosing failures, and storing reusable skills.
+- Picks the next Minecraft task (curriculum agent), generates a single async JS body to attempt it (action agent), runs it against the live world via Mineflayer, judges the result (critic agent), and stores the working code as a reusable skill.
+- Skills persist across sessions in **ChromaDB** (local) and **Convex** (cloud) and are retrieved by semantic similarity for the next task.
+- Every agent transition is fanned out to a public **Vercel** dashboard in real time: goal, generated code, verdict, skill library, narration.
+- ElevenLabs narrates milestone events (new goal, verdict, skill promoted) without blocking the loop.
 
-We are building the general architecture for open-world games, with Minecraft/Minetest as the first benchmark. We do not claim OmniForge can play all games.
+## Architecture
 
-## Project Split
+```
+Local                                      Cloud
+─────────────────────────────────────      ────────────────────────
+Minecraft Java 1.20.4 client                Convex (events, state,
+   │                                          skills, narration)
+   │ TCP :25565                                  ▲
+   ▼                                             │
+Fabric server                                    │
+   ▲                                             │
+   │ Mineflayer                                  │
+bot/  Mineflayer JSON-RPC bridge ◀──── stdio ───▶│
+   │  (prismarine-viewer :3007)                  │
+   │                                             │
+brain/  AgentLoop (Python)                       │
+   ├── voyager_agents (curriculum/action/        │
+   │     critic/skill) on GPT-5.5                │
+   ├── ChromaDB skill vectors                    │
+   ├── ElevenLabs narrator (fire-and-forget) ────┘
+   └── observability_hook
+                                                Vercel
+                                                  │
+                                              dashboard/  Next.js 14
+                                                  - BotView (top-down)
+                                                  - GoalPanel
+                                                  - EventFeed
+                                                  - SkillLibrary
+                                                  - NarrationPlayer
+```
 
-`brain/` is the Python AI Brain scaffold owned by Person B:
+Two-process runtime:
+1. `bot/` — Node.js Mineflayer bridge (`npm run bridge`). Spawned by the brain.
+2. `brain/` — Python agent (`python -m brain.run_agent --task "…"` or `--demo`).
 
-- AgentLoop orchestration
-- Game Profile creation
-- VLM/world observation boundary
-- GPT-5.5 structured planning boundary
-- verification, diagnosis, recovery, research, skills, memory, and events
+## Quickstart
 
-`bot/` is the TypeScript Runtime scaffold owned by Person A:
+### 1. Minecraft + Fabric
 
-- generic keyboard/mouse primitive actions
-- optional Minecraft/Mineflayer adapter actions
-- symbolic state and screenshot boundaries
-- runtime HTTP endpoints
+Follow [`scripts/setup_minecraft.md`](scripts/setup_minecraft.md). Then:
 
-## Current Status
+```
+scripts\start_server.bat
+```
 
-This is intentionally not implemented yet. Most methods raise `NotImplementedError` or `TODO` errors.
+### 2. Bot bridge
 
-No virtual environment is included yet. Do not run Python checks until `.venv` or `venv` exists and is activated.
+```
+cd bot
+npm install
+```
 
-See `CONTEXT.md` for the architecture, language, contracts, event model, and two-person task split.
+The brain auto-spawns the bridge; you don't run it directly.
+
+### 3. Convex backend (cloud, optional but expected for the demo)
+
+```
+npx convex dev
+```
+
+This logs you in, creates a deployment, watches `convex/`, and prints the URL. Put it in `.env` as `CONVEX_URL` and in `dashboard/.env.local` as `NEXT_PUBLIC_CONVEX_URL`.
+
+### 4. Brain
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r brain/requirements.txt
+copy .env.example .env   # fill in OPENAI_API_KEY (and ELEVENLABS_API_KEY, CONVEX_URL)
+```
+
+### 5. Dashboard
+
+```
+cd dashboard
+npm install
+copy .env.example .env.local   # set NEXT_PUBLIC_CONVEX_URL
+npm run dev
+```
+
+Open http://localhost:3000.
+
+### 6. Run the agent
+
+Single task:
+
+```
+python brain\run_agent.py --task "chop a tree and collect 1 oak_log"
+```
+
+Demo curriculum (recommended for the recording):
+
+```
+python brain\run_agent.py --demo
+```
+
+LLM curriculum (let GPT-5.5 propose tasks):
+
+```
+python brain\run_agent.py --curriculum
+```
+
+## Repo layout
+
+| Path | Purpose |
+| --- | --- |
+| `bot/` | Mineflayer JSON-RPC bridge (TypeScript). |
+| `brain/` | Python AgentLoop, vendored Voyager agents, Convex + Chroma stores, narrator. |
+| `convex/` | Convex schema and mutation/query files. |
+| `dashboard/` | Next.js 14 (App Router) live dashboard. |
+| `scripts/` | Setup, smoke, demo, and skill-seeding utilities. |
+| `tests/` | Offline unit + smoke tests (e.g. cross-session skill persistence). |
+| `docs/legacy/` | Quarantined OmniForge scaffold (typed-primitive HTTP server, hand-coded skills) preserved for reference; not in the build path. |
+
+## Verification
+
+Before the demo, run [`scripts/smoke_day1.md`](scripts/smoke_day1.md) end to end. The full demo runbook is [`scripts/demo_runbook.md`](scripts/demo_runbook.md).
+
+## Prize alignment
+
+- **OpenAI / Codex — Best use of GPT-5.5**: GPT-5.5 drives curriculum, code generation, and critic, all via the Responses API + Structured Outputs in `brain/llm_client.py`.
+- **Adaption Labs**: cross-session skill memory with retrieval-augmented action prompts, mirrored to Convex for cross-machine reuse.
+
+## Non-goals
+
+- No general-game framework (this is Minecraft-only).
+- No VLM / screenshot perception path; symbolic state from Mineflayer is sufficient.
+- No fine-tuning; no multi-agent coordination.
+
+See `CONTEXT.md` for terminology and the full event taxonomy.

@@ -1,320 +1,316 @@
-"""AgentLoop orchestration."""
+"""OmniPlay-MC AgentLoop — the Voyager curriculum/action/critic cycle.
+
+One iteration of `run_once`:
+  observe → retrieve skills → plan (action agent) → validate → execute →
+  observe again → critic verdict → recovery decision → optional skill upsert.
+
+`run_episode` drives many cycles, picking the next task either from a fixed
+queue, a one-shot user task, or the curriculum agent.
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import logging
+import uuid
+from collections import deque
+from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
+from bot_client import BotClient
 from diagnoser import Diagnoser
-from event_bus import EventBus
+from event_bus import EventBus, default_bus
 from executor import Executor
 from game_profile_builder import GameProfileBuilder
+from llm_client import usage_snapshot
 from memory_store import MemoryStore
 from models import (
     AgentEvent,
     AgentEventType,
-    AgentLoopStatus,
-    Diagnosis,
-    GameProfile,
+    JsCodeAction,
+    Plan,
     RecoveryTransition,
-    ResearchNote,
-    TrackStatus,
     VerificationResult,
     VerificationStatus,
+    WorldSnapshot,
 )
+from observability_hook import Observability
 from observer import Observer
 from planner import Planner
 from recovery_policy import RecoveryPolicy
-from researcher import Researcher
 from skill_builder import SkillBuilder
 from validator import Validator
+from verifier import Verifier
+from voyager_agents import CurriculumAgent, RetrievedSkill, SkillManager
+from voyager_agents.action import ActionResult
+
+LOG = logging.getLogger("omniplay.agent_loop")
+
+MAX_CYCLES_DEFAULT = 50
+MAX_TASK_RETRIES = 3
 
 
 class AgentLoop:
-    """Owns sequencing, retries, replanning, research, and memory updates."""
-
     def __init__(
         self,
-        game: str = "minecraft",
-        goal: str = "survive_first_night",
-        user_constraints: list[str] | None = None,
-        max_cycles: int = 1,
-        research_allowed: bool = True,
-        profile_builder: Any | None = None,
-        observer: Any | None = None,
-        planner: Any | None = None,
-        validator: Validator | None = None,
-        executor: Any | None = None,
-        verifier: Any | None = None,
-        diagnoser: Diagnoser | None = None,
-        recovery_policy: RecoveryPolicy | None = None,
-        researcher: Researcher | None = None,
-        skill_builder: SkillBuilder | None = None,
-        memory_store: Any | None = None,
+        *,
+        bot_client: BotClient,
+        skill_manager: SkillManager,
+        memory: MemoryStore,
         event_bus: EventBus | None = None,
+        curriculum: CurriculumAgent | None = None,
+        observer: Observer | None = None,
+        planner: Planner | None = None,
+        executor: Executor | None = None,
+        validator: Validator | None = None,
+        verifier: Verifier | None = None,
+        recovery: RecoveryPolicy | None = None,
+        skill_builder: SkillBuilder | None = None,
+        diagnoser: Diagnoser | None = None,
+        profile_builder: GameProfileBuilder | None = None,
+        narrator: "Narrator | None" = None,
     ) -> None:
-        self.game = game
-        self.goal = goal
-        self.user_constraints = user_constraints or []
-        self.max_cycles = max(1, max_cycles)
-        self.research_allowed = research_allowed
-        self.profile_builder = profile_builder or GameProfileBuilder()
-        self.observer = observer or Observer()
+        self.bot_client = bot_client
+        self.skill_manager = skill_manager
+        self.memory = memory
+        self.event_bus = event_bus or default_bus()
+        self.observability = Observability(event_bus=self.event_bus, memory=memory)
+        self.curriculum = curriculum or CurriculumAgent()
+        self.observer = observer or Observer(client=bot_client)
         self.planner = planner or Planner()
+        self.executor = executor or Executor(client=bot_client)
         self.validator = validator or Validator()
-        self.executor = executor or Executor()
-        from verifier import Verifier
-
         self.verifier = verifier or Verifier()
+        self.recovery = recovery or RecoveryPolicy()
+        self.skill_builder = skill_builder or SkillBuilder(skill_manager=skill_manager)
         self.diagnoser = diagnoser or Diagnoser()
-        self.recovery_policy = recovery_policy or RecoveryPolicy()
-        self.researcher = researcher or Researcher()
-        self.skill_builder = skill_builder or SkillBuilder()
-        self.memory_store = memory_store or MemoryStore()
-        self.event_bus = event_bus or EventBus()
-        self._status = AgentLoopStatus(
-            running=True,
-            game=game,
-            goal=goal,
-            cycle=0,
-            tracks={
-                "runtime": TrackStatus.UNKNOWN,
-                "observation": TrackStatus.UNKNOWN,
-                "planning": TrackStatus.READY,
-                "research": TrackStatus.READY if research_allowed else TrackStatus.UNAVAILABLE,
-                "memory": TrackStatus.UNKNOWN,
-            },
-        )
+        self.profile_builder = profile_builder or GameProfileBuilder()
+        self.narrator = narrator
+
+        self._cycle = 0
+        self._completed_tasks: list[str] = []
+        self._failed_tasks: list[str] = []
+        self._current_goal: str | None = None
+        self._current_status: str = "idle"
 
     @property
-    def status(self) -> AgentLoopStatus:
-        """Return the latest AgentLoop status."""
-        return self._status
+    def status(self) -> dict[str, Any]:
+        return {
+            "cycle": self._cycle,
+            "currentGoal": self._current_goal,
+            "currentStatus": self._current_status,
+            "completed": list(self._completed_tasks),
+            "failed": list(self._failed_tasks),
+            "skills": self.skill_manager.count(),
+            "tokenUsage": usage_snapshot(),
+        }
 
-    async def run_once(self) -> RecoveryTransition:
-        """Run one OmniForge cycle through public module interfaces."""
-        cycle = self._status.cycle + 1
-        await self._publish(AgentEventType.GOAL_RECEIVED, cycle, {"game": self.game, "goal": self.goal})
+    async def run_once(self, *, task: str, rationale: str = "user-supplied") -> RecoveryTransition:
+        """Run a single curriculum iteration on `task`. Returns the recovery decision."""
+        self._cycle += 1
+        cycle = self._cycle
+        self._current_goal = task
+        self._current_status = "observing"
+        await self._emit(AgentEventType.GOAL_RECEIVED, {"task": task, "rationale": rationale})
+        if self.narrator is not None:
+            self.narrator.fire_and_forget(f"Next goal: {task}.", AgentEventType.GOAL_RECEIVED)
 
-        profile = await self.profile_builder.build(self.game)
-        profile = await self._research_profile_if_needed(profile, cycle)
-        await self._publish(
-            AgentEventType.GAME_PROFILE_CREATED,
-            cycle,
-            {"profile": profile.model_dump(mode="json")},
-        )
-
-        snapshot = await self.observer.observe(cycle=cycle, goal=self.goal, game=profile.game_name)
-        await self._publish(
+        snapshot_before = await self.observer.observe(cycle=cycle, goal=task)
+        await self.memory.set_current_state(snapshot_before)
+        await self._emit(
             AgentEventType.WORLD_OBSERVED,
-            cycle,
-            {"snapshot": snapshot.model_dump(mode="json")},
-            snapshot_id=snapshot.snapshot_id,
+            {"snapshot": snapshot_before.model_dump()},
+            snapshot_id=snapshot_before.snapshot_id,
         )
 
-        memory_context = await self._memory_context()
-        await self._publish(
-            AgentEventType.MEMORY_RETRIEVED,
-            cycle,
-            {"available": bool(memory_context), "context": memory_context},
-            snapshot_id=snapshot.snapshot_id,
-        )
+        last_error: str | None = None
+        last_code: str | None = None
 
-        plan = await self.planner.plan(
-            self.goal,
-            profile,
-            snapshot,
-            memory_context,
-            self.user_constraints,
-        )
-        await self._publish(
-            AgentEventType.PLAN_CREATED,
-            cycle,
-            {"plan": plan.model_dump(mode="json")},
-            snapshot_id=snapshot.snapshot_id,
-        )
+        for attempt in range(1, MAX_TASK_RETRIES + 1):
+            self._current_status = f"planning (attempt {attempt})"
+            retrieved = self.skill_manager.retrieve(task, k=3)
+            await self._emit(
+                AgentEventType.MEMORY_RETRIEVED,
+                {"skills": [r.record.name for r in retrieved], "attempt": attempt},
+                snapshot_id=snapshot_before.snapshot_id,
+            )
 
-        validation = self.validator.validate_plan(plan)
-        if validation.status != RecoveryTransition.CONTINUE:
-            return await self._finish(cycle, validation.status, {"reason": validation.reason})
+            plan, action_result, action = self.planner.plan(
+                task=task,
+                rationale=rationale,
+                snapshot=snapshot_before,
+                retrieved_skills=retrieved,
+                last_error=last_error,
+                last_code=last_code,
+            )
+            await self._emit(
+                AgentEventType.PLAN_CREATED,
+                {
+                    "plan": plan.model_dump(),
+                    "action": action.model_dump(),
+                    "explain": action_result.explain,
+                    "steps": action_result.plan,
+                    "attempt": attempt,
+                },
+                snapshot_id=snapshot_before.snapshot_id,
+            )
 
-        for action in plan.actions:
-            await self._publish(
+            validation = self.validator.validate_action(action)
+            if not validation.ok:
+                LOG.warning("validator rejected attempt %d: %s", attempt, validation.reason)
+                last_error = f"validator: {validation.reason}"
+                last_code = action.code
+                continue
+
+            self._current_status = f"executing (attempt {attempt})"
+            await self._emit(
                 AgentEventType.ACTION_STARTED,
-                cycle,
-                {"action": action.model_dump(mode="json")},
-                snapshot_id=snapshot.snapshot_id,
+                {"action": action.model_dump(), "attempt": attempt},
+                snapshot_id=snapshot_before.snapshot_id,
             )
-            execution = await self.executor.execute(action)
-            await self._publish(
+            execution, run = await self.executor.execute(action)
+            await self._emit(
                 AgentEventType.ACTION_COMPLETED,
-                cycle,
-                {"execution": execution.model_dump(mode="json")},
-                snapshot_id=snapshot.snapshot_id,
+                {"execution": execution.model_dump(), "durationMs": run.duration_ms},
+                snapshot_id=snapshot_before.snapshot_id,
             )
 
-            post_snapshot = await self.observer.observe(cycle=cycle, goal=self.goal, game=profile.game_name)
-            verification = self.verifier.verify(action, execution, post_snapshot)
-            await self._publish(
+            self._current_status = "verifying"
+            snapshot_after = await self.observer.observe(cycle=cycle, goal=task)
+            await self.memory.set_current_state(snapshot_after)
+
+            verification, verdict = self.verifier.verify(
+                action_id=action.id,
+                task=task,
+                code=action.code,
+                runtime_ok=run.ok,
+                runtime_error=(run.error or {}).get("message") if run.error else None,
+                runtime_result=str(run.result) if run.result is not None else None,
+                snapshot_before=_snapshot_for_critic(snapshot_before),
+                snapshot_after=_snapshot_for_critic(snapshot_after),
+            )
+            await self._emit(
                 AgentEventType.VERIFICATION_COMPLETED,
-                cycle,
-                {"verification": verification.model_dump(mode="json")},
-                snapshot_id=post_snapshot.snapshot_id,
+                {"verification": verification.model_dump(), "verdict": verdict.model_dump()},
+                snapshot_id=snapshot_after.snapshot_id,
+            )
+            if self.narrator is not None:
+                tone = "succeeded" if verification.status == VerificationStatus.SUCCESS else "did not succeed"
+                self.narrator.fire_and_forget(
+                    f"Task '{task}' {tone}. {verdict.feedback}",
+                    AgentEventType.VERIFICATION_COMPLETED,
+                )
+
+            transition = self.recovery.decide(verification=verification, attempts_for_task=attempt)
+
+            if verification.status == VerificationStatus.SUCCESS:
+                if task not in self._completed_tasks:
+                    self._completed_tasks.append(task)
+                record = self.skill_builder.build(task=task, action=action_result)
+                stored = await self.skill_builder.store(record)
+                await self.memory.upsert_skill(stored)
+                await self._emit(
+                    AgentEventType.SKILL_CANDIDATE_CREATED,
+                    {"skill": _skill_to_dict(stored)},
+                    snapshot_id=snapshot_after.snapshot_id,
+                )
+                await self._emit(
+                    AgentEventType.SKILL_PROMOTED,
+                    {"skill": _skill_to_dict(stored)},
+                    snapshot_id=snapshot_after.snapshot_id,
+                )
+                self._current_status = "idle"
+                return RecoveryTransition.STORE_MEMORY
+
+            diagnosis = self.diagnoser.classify(verification=verification, action_id=action.id)
+            await self._emit(
+                AgentEventType.FAILURE_DIAGNOSED,
+                {"diagnosis": diagnosis.model_dump()},
+                snapshot_id=snapshot_after.snapshot_id,
             )
 
-            if verification.status != VerificationStatus.SUCCESS:
-                return await self._recover(cycle, verification)
+            last_error = verdict.feedback or verification.observed.get("runtime_error") or "incomplete"
+            last_code = action.code
 
-        skill = self.skill_builder.from_plan(plan)
-        await self._safe_memory_call("upsert_skill", skill)
-        await self._publish(
-            AgentEventType.SKILL_CANDIDATE_CREATED,
-            cycle,
-            {"skill": skill.model_dump(mode="json")},
-            snapshot_id=snapshot.snapshot_id,
-        )
-        return await self._finish(cycle, RecoveryTransition.CONTINUE)
+            if transition == RecoveryTransition.ABORT:
+                if task not in self._failed_tasks:
+                    self._failed_tasks.append(task)
+                self._current_status = "aborted"
+                return RecoveryTransition.ABORT
 
-    async def _research_profile_if_needed(self, profile: GameProfile, cycle: int) -> GameProfile:
-        if not self.research_allowed:
-            return profile
+        if task not in self._failed_tasks:
+            self._failed_tasks.append(task)
+        self._current_status = "exhausted retries"
+        return RecoveryTransition.ABORT
 
-        coaching_query = _coaching_research_query(self.game, self.goal, self.user_constraints)
-        if coaching_query:
-            note = await self._research(cycle, coaching_query)
-            await self._safe_memory_call("append_research_note", note)
-            await self._store_guidance_skill(note, cycle)
-            if note.confidence > 0:
-                profile = await self.profile_builder.build(profile.game_name, [note])
-                await self._safe_memory_call("upsert_game_profile", profile)
-            return profile
+    async def run_episode(
+        self,
+        *,
+        task_queue: list[str] | None = None,
+        max_cycles: int = MAX_CYCLES_DEFAULT,
+        use_curriculum: bool = False,
+    ) -> dict[str, Any]:
+        await self.memory.start_episode(task=", ".join(task_queue or []) or "curriculum")
+        queue: deque[str] = deque(task_queue or [])
+        for _ in range(max_cycles):
+            task: str
+            if queue:
+                task = queue.popleft()
+                rationale = "scheduled task"
+            elif use_curriculum:
+                snapshot = await self.observer.observe(cycle=self._cycle + 1, goal="(planning)")
+                proposal = self.curriculum.next_task(
+                    biome=snapshot.symbolic.biome,
+                    time_of_day=str((snapshot.symbolic.raw_state or {}).get("timeOfDay", "unknown")),
+                    health=snapshot.symbolic.health,
+                    hunger=snapshot.symbolic.hunger,
+                    inventory=snapshot.symbolic.inventory,
+                    nearby_blocks=snapshot.symbolic.nearby_blocks,
+                    nearby_entities=snapshot.symbolic.nearby_entities,
+                    completed_tasks=self._completed_tasks,
+                    failed_tasks=self._failed_tasks,
+                )
+                task = proposal.task
+                rationale = proposal.rationale
+            else:
+                LOG.info("episode finished: queue empty and curriculum disabled")
+                break
+            transition = await self.run_once(task=task, rationale=rationale)
+            LOG.info("cycle %d transition=%s", self._cycle, transition)
+        return self.status
 
-        if profile.confidence >= 0.4:
-            return profile
-
-        query = f"{profile.game_name} early survival controls mechanics first night"
-        note = await self._research(cycle, query)
-        if note.confidence <= 0:
-            return profile
-
-        await self._safe_memory_call("append_research_note", note)
-        await self._store_guidance_skill(note, cycle)
-        researched_profile = await self.profile_builder.build(profile.game_name, [note])
-        await self._safe_memory_call("upsert_game_profile", researched_profile)
-        return researched_profile
-
-    async def _recover(self, cycle: int, verification: VerificationResult) -> RecoveryTransition:
-        diagnosis = self.diagnoser.diagnose(verification)
-        transition = self.recovery_policy.recommend(verification, diagnosis)
-        await self._publish(
-            AgentEventType.FAILURE_DIAGNOSED,
-            cycle,
-            {"diagnosis": diagnosis.model_dump(mode="json"), "transition": transition},
-        )
-
-        if transition == RecoveryTransition.RESEARCH and self.research_allowed:
-            note = await self._research(cycle, _research_query_from_diagnosis(self.game, self.goal, diagnosis))
-            await self._safe_memory_call("append_research_note", note)
-            await self._store_guidance_skill(note, cycle)
-
-        return await self._finish(cycle, transition)
-
-    async def _store_guidance_skill(self, note: ResearchNote, cycle: int) -> None:
-        if note.confidence <= 0:
-            return
-
-        skill = self.skill_builder.from_guidance(self.goal, note)
-        await self._safe_memory_call("upsert_skill", skill)
-        await self._publish(
-            AgentEventType.SKILL_CANDIDATE_CREATED,
-            cycle,
-            {"skill": skill.model_dump(mode="json"), "source_note": note.query},
-        )
-
-    async def _research(self, cycle: int, query: str) -> ResearchNote:
-        await self._publish(AgentEventType.RESEARCH_STARTED, cycle, {"query": query})
-        note = await self.researcher.research(query)
-        await self._publish(
-            AgentEventType.RESEARCH_COMPLETED,
-            cycle,
-            {"note": note.model_dump(mode="json")},
-        )
-        return note
-
-    async def _memory_context(self) -> str:
-        try:
-            context = await self.memory_store.context(f"{self.game} {self.goal}")
-        except Exception:
-            self._set_track("memory", TrackStatus.UNAVAILABLE)
-            return ""
-
-        self._set_track("memory", TrackStatus.READY)
-        return context
-
-    async def _safe_memory_call(self, method_name: str, *args: Any) -> None:
-        method = getattr(self.memory_store, method_name, None)
-        if method is None:
-            return
-        try:
-            await method(*args)
-        except Exception:
-            self._set_track("memory", TrackStatus.UNAVAILABLE)
-
-    async def _publish(
+    async def _emit(
         self,
         event_type: AgentEventType,
-        cycle: int,
         data: dict[str, Any],
+        *,
         snapshot_id: str | None = None,
     ) -> None:
-        event = AgentEvent(
-            id=str(uuid4()),
-            timestamp=datetime.now(UTC).isoformat(),
-            event_type=event_type,
-            cycle=cycle,
+        await self.observability.emit(
+            event_type,
+            data,
+            cycle=self._cycle,
             snapshot_id=snapshot_id,
-            data=data,
         )
-        await self.event_bus.publish(event)
-        await self._safe_memory_call("append_event", event)
-        self._status = self._status.model_copy(update={"last_event_id": event.id})
-
-    async def _finish(
-        self,
-        cycle: int,
-        transition: RecoveryTransition,
-        data: dict[str, Any] | None = None,
-    ) -> RecoveryTransition:
-        self._status = self._status.model_copy(
-            update={
-                "cycle": cycle,
-                "transition": transition,
-                "running": cycle < self.max_cycles and transition == RecoveryTransition.CONTINUE,
-            }
-        )
-        if data:
-            self._status.tracks["planning"] = TrackStatus.DEGRADED
-        return transition
-
-    def _set_track(self, name: str, status: TrackStatus) -> None:
-        tracks = dict(self._status.tracks)
-        tracks[name] = status
-        self._status = self._status.model_copy(update={"tracks": tracks})
 
 
-def _research_query_from_diagnosis(game: str, goal: str, diagnosis: Diagnosis) -> str:
-    parts = [game, goal, str(diagnosis.failure_type or ""), diagnosis.cause, diagnosis.repair]
-    return " ".join(part for part in parts if part).strip()
+def _snapshot_for_critic(snapshot: WorldSnapshot) -> dict[str, Any]:
+    sym = snapshot.symbolic
+    return {
+        "inventory": sym.inventory,
+        "nearbyBlocks": sym.nearby_blocks,
+        "nearbyEntities": sym.nearby_entities,
+        "position": sym.position.model_dump() if sym.position else None,
+    }
 
 
-def _coaching_research_query(game: str, goal: str, user_constraints: list[str]) -> str:
-    coaching = [
-        constraint
-        for constraint in user_constraints
-        if "?" in constraint
-        or constraint.lower().startswith(("how ", "what ", "where ", "research ", "learn "))
-    ]
-    if not coaching:
-        return ""
-    return f"{game} {goal} user coaching: {' '.join(coaching)}"
+def _skill_to_dict(record: Any) -> dict[str, Any]:
+    return {
+        "name": getattr(record, "name", None),
+        "goal": getattr(record, "goal", None),
+        "description": getattr(record, "description", None),
+        "version": getattr(record, "version", 1),
+        "createdAt": getattr(record, "created_at", None),
+    }
+
+
+__all__ = ["AgentLoop"]

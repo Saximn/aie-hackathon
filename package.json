@@ -1,0 +1,12 @@
+{
+  "name": "omniplay-mc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy"
+  },
+  "devDependencies": {
+    "convex": "^1.16.0"
+  }
+}

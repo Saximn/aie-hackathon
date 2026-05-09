@@ -1,42 +1,46 @@
-"""Deterministic failure diagnosis rules."""
+"""Diagnoser — coarse failure classification (stretch in OmniPlay-MC).
 
-from models import Diagnosis, FailureType, RecoveryTransition, VerificationResult, VerificationStatus
+For the hackathon build the AgentLoop retries on failure without consulting
+the diagnoser. We keep the module so the dashboard can show a `failure_type`
+when the critic feedback maps clearly to one. A deeper LLM-driven diagnoser
+is a Day 3 stretch goal documented in the plan.
+"""
+
+from __future__ import annotations
+
+from models import Diagnosis, FailureType, RecoveryTransition, VerificationResult
+
+KEYWORD_TO_FAILURE: list[tuple[tuple[str, ...], FailureType]] = [
+    (("not enough", "missing", "no axe", "no pickaxe", "need a"), FailureType.MISSING_PREREQUISITE),
+    (("inventory full", "full inventory"), FailureType.INSUFFICIENT_RESOURCES),
+    (("could not find", "no.*nearby", "couldn't find", "didn't find"), FailureType.RESOURCE_UNAVAILABLE),
+    (("path", "stuck", "unreachable"), FailureType.PATHFINDING_FAILURE),
+    (("timeout", "timed out"), FailureType.TIMEOUT),
+    (("zombie", "skeleton", "creeper", "danger"), FailureType.UNSAFE_STATE),
+]
 
 
 class Diagnoser:
-    """Classifies why a non-successful verification result occurred."""
-
-    def diagnose(self, verification: VerificationResult) -> Diagnosis:
-        """Return a structured diagnosis.
-
-        TODO(Person B): use GPT-5.5 with Structured Outputs for ambiguous
-        failures and deterministic rules for simple scaffold checks.
-        """
-        if verification.status == VerificationStatus.UNSAFE:
-            return Diagnosis(
-                action_id=verification.action_id,
-                failure_type=FailureType.UNSAFE_STATE,
-                confidence=verification.confidence,
-                cause="Verification observed an unsafe game state.",
-                repair="Abort the current plan and wait for explicit recovery instructions.",
-                recommended_transition=RecoveryTransition.ABORT,
-            )
-
-        observed = " ".join(str(value).lower() for value in verification.observed.values())
-        if "timeout" in observed:
-            return Diagnosis(
-                action_id=verification.action_id,
-                failure_type=FailureType.TIMEOUT,
-                confidence=max(verification.confidence, 0.8),
-                cause="The action did not complete before its timeout.",
-                repair="Retry the action once, then replan if the timeout repeats.",
-                recommended_transition=RecoveryTransition.RETRY,
-            )
-
+    def classify(self, *, verification: VerificationResult, action_id: str) -> Diagnosis:
+        observed = verification.observed or {}
+        text = " ".join(
+            str(v) for v in (observed.get("runtime_error"), observed.get("feedback"), observed.get("runtime_result"))
+            if v
+        ).lower()
+        failure: FailureType | None = None
+        for keywords, ftype in KEYWORD_TO_FAILURE:
+            if any(k in text for k in keywords):
+                failure = ftype
+                break
         return Diagnosis(
-            action_id=verification.action_id,
-            confidence=verification.confidence,
-            cause="The verification result does not match the expected outcome.",
-            repair="Replan using the latest World Snapshot.",
+            action_id=action_id,
+            failure_type=failure,
+            confidence=0.6 if failure else 0.0,
+            cause=text[:200],
+            repair=str(observed.get("feedback") or ""),
+            should_research=False,
             recommended_transition=RecoveryTransition.REPLAN,
         )
+
+
+__all__ = ["Diagnoser"]
