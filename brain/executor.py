@@ -1,4 +1,4 @@
-"""Primitive Action execution scaffold."""
+"""Primitive Action execution."""
 
 from bot_client import BotClient
 from models import ExecutionResult, PrimitiveAction
@@ -12,4 +12,12 @@ class Executor:
 
     async def execute(self, action: PrimitiveAction) -> ExecutionResult:
         """Run a PrimitiveAction without reasoning at execution time."""
-        return await self._bot_client.execute(action)
+        try:
+            return await self._bot_client.execute(action)
+        except Exception as exc:
+            return ExecutionResult(
+                action_id=action.id,
+                success=False,
+                result=f"runtime unavailable: {type(exc).__name__}",
+                evidence={"error": str(exc)},
+            )

@@ -112,3 +112,26 @@ def test_bot_client_accepts_legacy_camel_case_runtime_payloads() -> None:
     assert asyncio.run(client.health())["screenshot_available"] is True
     assert asyncio.run(client.screenshot_b64()) == "abc123"
     assert asyncio.run(client.actions())[0]["required_args"] == ["duration_ms"]
+
+
+def test_brain_exposes_memory_and_manual_test_action_endpoints() -> None:
+    client = TestClient(app)
+
+    memory = client.get("/memory").json()
+    assert "events" in memory
+    assert "skills" in memory
+
+    result = client.post(
+        "/test_action",
+        json={
+            "id": "wait-demo",
+            "type": "wait",
+            "args": {"duration_ms": 10},
+            "expected_result": {},
+            "timeout_ms": 100,
+            "adapter": "generic_input",
+        },
+    ).json()
+
+    assert result["action_id"] == "wait-demo"
+    assert "success" in result

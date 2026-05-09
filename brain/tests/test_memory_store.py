@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from memory_store import MemoryStore
-from models import AgentEvent, AgentEventType, Skill
+from models import AgentEvent, AgentEventType, GameProfile, ResearchNote, Skill
 
 
 class FakeMemories:
@@ -80,3 +80,36 @@ def test_context_queries_hyperspell_collection() -> None:
     assert call["answer"] is True
     assert call["max_results"] == 8
     assert call["sources"] == ["vault"]
+
+
+def test_append_research_note_adds_structured_game_knowledge_memory() -> None:
+    store, client = memory_store_with_fake_client()
+    note = ResearchNote(
+        query="minecraft first night",
+        summary="Collect wood and build shelter before night.",
+        source_urls=["https://example.test/guide"],
+        confidence=0.8,
+    )
+
+    run(store.append_research_note(note))
+
+    call = client.memories.add_calls[0]
+    assert call["resource_id"] == "research:minecraft-first-night"
+    assert call["collection"] == "omniforge-agent-memory"
+    assert call["metadata"]["kind"] == "research_note"
+    assert call["metadata"]["query"] == "minecraft first night"
+    assert "Collect wood" in call["text"]
+
+
+def test_upsert_game_profile_adds_durable_profile_memory() -> None:
+    store, client = memory_store_with_fake_client()
+    profile = GameProfile(game_name="minecraft", genre="sandbox survival", source="static", confidence=0.95)
+
+    run(store.upsert_game_profile(profile))
+
+    call = client.memories.add_calls[0]
+    assert call["resource_id"] == "game_profile:minecraft"
+    assert call["collection"] == "omniforge-agent-memory"
+    assert call["metadata"]["kind"] == "game_profile"
+    assert call["metadata"]["game_name"] == "minecraft"
+    assert call["metadata"]["source"] == "static"

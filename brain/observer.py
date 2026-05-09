@@ -24,8 +24,16 @@ class Observer:
 
     async def observe(self, cycle: int, goal: str, game: str) -> WorldSnapshot:
         """Collect a WorldSnapshot from runtime observation seams."""
-        screenshot_b64 = await self._bot_client.screenshot_b64()
-        state = await self._bot_client.state()
+        try:
+            screenshot_b64 = await self._bot_client.screenshot_b64()
+        except Exception:
+            screenshot_b64 = None
+
+        try:
+            state = await self._bot_client.state()
+        except Exception:
+            state = {}
+
         visual = await self._vision.observe(screenshot_b64, goal, game)
         symbolic = _symbolic_observation_from_state(state)
 
