@@ -1,12 +1,15 @@
 /**
- * OmniForge runtime entrypoint.
+ * OmniPlay-MC Mineflayer bridge entrypoint.
  *
- * TODO(Person A): start the HTTP server and attach the selected adapters.
+ * Communicates with the Python brain via line-delimited JSON-RPC on stdin/stdout.
+ * stderr is reserved for human-readable diagnostics.
+ *
+ * Usage:
+ *   npm run bridge
+ *   # or
+ *   node --enable-source-maps dist/main.js
  */
-export async function startRuntime(): Promise<void> {
-  throw new Error("TODO: start OmniForge runtime");
-}
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  void startRuntime();
-}
+import { startBridge } from "./voyagerBridge.js";
+
+startBridge();

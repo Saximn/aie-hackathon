@@ -1,13 +1,48 @@
-"""Skill creation scaffold."""
+"""SkillBuilder — turns a successful action into a SkillRecord and persists it."""
 
-from models import Plan, Skill
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime, timezone
+
+from voyager_agents import ActionResult, SkillManager
+from voyager_agents.skill import SkillRecord
+
+LOG = logging.getLogger("omniplay.skill_builder")
 
 
 class SkillBuilder:
-    """Creates versioned structured Skills from plans, coaching, and research."""
+    def __init__(self, *, skill_manager: SkillManager) -> None:
+        self.skill_manager = skill_manager
 
-    def from_plan(self, plan: Plan) -> Skill:
-        raise NotImplementedError("SkillBuilder.from_plan is scaffold-only")
+    def build(self, *, task: str, action: ActionResult) -> SkillRecord:
+        name = _normalize_name(action.name) or _name_from_task(task)
+        return SkillRecord(
+            name=name,
+            goal=task,
+            code=action.code,
+            description=action.explain or task,
+            version=1,
+            tags=[],
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
 
-    def promote_after_success(self, skill: Skill) -> Skill:
-        raise NotImplementedError("SkillBuilder.promote_after_success is scaffold-only")
+    async def store(self, record: SkillRecord) -> SkillRecord:
+        return self.skill_manager.upsert(record)
+
+
+_SAFE = re.compile(r"[^a-z0-9_]+")
+
+
+def _normalize_name(name: str) -> str:
+    name = name.strip().lower().replace(" ", "_")
+    name = _SAFE.sub("_", name).strip("_")
+    return name
+
+
+def _name_from_task(task: str) -> str:
+    return _normalize_name(task) or "skill"
+
+
+__all__ = ["SkillBuilder"]

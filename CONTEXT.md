@@ -1,307 +1,124 @@
-# OmniForge
+# OmniPlay-MC (Voyager-Plus)
 
-OmniForge is a game-agnostic open-world agent architecture, first benchmarked on Minecraft/Minetest.
+OmniPlay-MC is an observable, self-improving Minecraft agent. It is a modernized fork of [MineDojo/Voyager](https://github.com/MineDojo/Voyager) rebuilt around GPT-5.5, Convex live store, ChromaDB skill memory, and a Next.js public dashboard.
 
 One-line pitch:
 
-OmniForge learns how to play slow open-world games by researching the game, observing the screen with a VLM, planning grounded primitive actions with GPT-5.5, controlling the game through keyboard/mouse or an optional game adapter, diagnosing failures, and storing reusable skills.
+> OmniPlay-MC plays Minecraft by asking GPT-5.5 to write JavaScript, runs that JS through a Mineflayer bridge, judges the result, and saves the working code as a reusable skill — then streams every step to a public live-observability dashboard.
 
-Important claim boundary:
+## Scope
 
-We are building the general architecture for open-world games, with Minecraft/Minetest as the first benchmark. We do not claim OmniForge can play all games.
-
-## Demo Target
-
-The first demo targets slow open-world survival gameplay where strategic decisions matter more than reflexes.
-
-Primary benchmark goal:
-
-`survive_first_night`
-
-Concrete demo flow:
-
-1. Build or load a Game Profile for Minecraft/Minetest.
-2. Capture a screenshot from the game window.
-3. Produce a structured World Snapshot from VLM perception and optional symbolic state.
-4. Retrieve relevant skills and recent failures from memory.
-5. Ask GPT-5.5 to produce a grounded Plan made only of Primitive Actions.
-6. Validate and execute the actions through keyboard/mouse or an optional Minecraft adapter.
-7. Verify the outcome against each action expected result.
-8. Diagnose non-successful outcomes.
-9. Accept user coaching by text or voice.
-10. Create or update a Skill and retry.
-
-The hackathon demo should avoid fast combat, complex crafting menus, arbitrary exploration, PvP, FPS aiming, precision platforming, and long autonomous runs.
-
-## Language
-
-**OmniForge**:
-The overall game-agnostic open-world agent system.
-_Avoid_: universal game bot, plays all games
-
-**AgentLoop**:
-The orchestrator that owns sequencing, retries, replanning, research decisions, memory updates, and event emission.
-_Avoid_: agent, controller, brain
-
-**GameProfileBuilder**:
-The module that creates a structured Game Profile from static config or research.
-_Avoid_: hardcoded Minecraft assumptions
-
-**Game Profile**:
-The structured controls, mechanics, risks, and early objectives for one game.
-_Avoid_: guide, wiki dump
-
-**Observer**:
-The module that turns screenshot perception and optional symbolic state into a World Snapshot.
-
-**Visual Observation**:
-The VLM-derived scene summary, visible objects, risk level, time estimate, UI state, and confidence.
-
-**Symbolic Observation**:
-Optional adapter-derived state such as health, hunger, inventory, nearby blocks, position, or biome.
-
-**World Snapshot**:
-The structured state object used as the only state input for planning and verification.
-_Avoid_: raw bot state
-
-**Planner**:
-The GPT-5.5 module that turns a goal, Game Profile, World Snapshot, memory, user constraints, and recent failures into a grounded Plan.
-
-**Plan**:
-An ephemeral grounded action sequence for a specific goal and World Snapshot.
-_Avoid_: strategy, recipe
-
-**Primitive Action**:
-An atomic operation the Executor can run through a universal input adapter or optional game adapter.
-_Avoid_: vague command, skill step
-
-**Executor**:
-The module that runs allowed Primitive Actions and returns Execution Results. The Executor does not reason and does not interpret natural language.
-
-**Verifier**:
-The module that decides whether an action or plan succeeded from post-action screenshot and optional symbolic state.
-
-**Verification Status**:
-The observable outcome of a Primitive Action or Plan.
-_Avoid_: error, result
-
-**Diagnoser**:
-The module that classifies why a non-successful Verification Status occurred.
-
-**Failure Type**:
-The diagnosed cause of a non-successful Verification Status.
-_Avoid_: exception, bug
-
-**Recovery Transition**:
-The AgentLoop decision made after verification and diagnosis: continue, retry, replan, research, abort, store memory, or promote skill.
-_Avoid_: fallback
-
-**RecoveryPolicy**:
-The module that maps verification and diagnosis into a recommended Recovery Transition.
-
-**Researcher**:
-The module that retrieves external game knowledge only when the AgentLoop decides knowledge is missing.
-_Avoid_: calling Exa every loop
-
-**SkillBuilder**:
-The module that converts successful actions, coaching, or researched guidance into reusable structured Skills.
-
-**Skill**:
-A versioned structured procedure that captures reusable play knowledge without containing executable code.
-_Avoid_: script, plugin, macro
-
-**MemoryStore**:
-The module that persists events, skills, failures, user preferences, and current dashboard state.
-_Avoid_: direct Convex/Hyperspell coupling in core logic
-
-**Agent Event**:
-A structured real-time record emitted by the AgentLoop so the dashboard can show profile, perception, planning, actions, verification, diagnosis, research, coaching, and learned skills.
-_Avoid_: untyped log line
-
-## Relationships
-
-- The **AgentLoop** calls **GameProfileBuilder**, **Observer**, **Planner**, **Executor**, **Verifier**, **Diagnoser**, **Researcher**, **SkillBuilder**, **MemoryStore**, and **RecoveryPolicy**.
-- Subcomponents return structured data and do not call each other directly.
-- The **AgentLoop** emits one or more **Agent Events** for every orchestration step.
-- The **GameProfileBuilder** uses static config first and may call research only when creating or repairing a profile.
-- The **Observer** uses VLM screenshot perception as the generic path and optional game-specific symbolic state when available.
-- The **Planner** may use Skills as reusable planning knowledge, but every executable step in a Plan must be a grounded Primitive Action.
-- The **Executor** runs only supported Primitive Actions. It does not interpret abstract goals such as "survive the night" or "build a shelter".
-- The **Verifier** compares post-action state against the expected result attached to the Primitive Action.
-- The **Diagnoser** classifies non-successful outcomes and recommends repair, retry, replan, or research.
-- The **Researcher** is called only for new Game Profiles, missing strategy, repeated failure, unknown mechanics, or explicit user instruction.
-- The **SkillBuilder** creates Skills from successful plans, user coaching, and researched strategies.
-- A **Skill** can be promoted from `candidate` to `verified` after one successful execution.
-- Convex is the preferred live memory and dashboard store. Local JSON is the fallback. Hyperspell is optional long-term semantic memory.
+- **Game**: Minecraft Java 1.20.4 (Fabric server, online-mode false). Not framework-agnostic; not a multi-game claim.
+- **Perception**: symbolic-only. We read inventory, position, biome, nearby blocks, and entities from Mineflayer. No screenshots; no VLM.
+- **Action**: code-as-policy. The action agent emits an async JS body that runs inside the Mineflayer bridge with `(bot, mcData, Vec3, goals, Movements)` in scope.
+- **Memory**: ChromaDB locally + Convex in the cloud. Skills survive restart and machine moves.
 
 ## Architecture
 
-```text
-User / Judge
-  -> text or voice coaching
-  -> AgentLoop
+```
+Local                                            Cloud
+─────────────────────────────────────────────    ─────────────────────────
+Minecraft Java 1.20.4                            Convex
+   │                                              ├ episodes
+Fabric server :25565                              ├ events
+   │                                              ├ current_state
+bot/  Mineflayer JSON-RPC bridge ◀──── stdio ─────┤  ▲
+   ├ voyagerBridge.ts                              │  │
+   ├ skillPrimitives.ts                            │  │
+   └ viewer.ts (prismarine, :3007 best-effort)     │  │
+   │                                              ├ skills
+brain/  AgentLoop                                 ├ narration_clips
+   ├ voyager_agents/                              └ lessons
+   │   ├ curriculum.py                                ▲
+   │   ├ action.py                                    │
+   │   ├ critic.py                                    │
+   │   └ skill.py (ChromaDB)                          │
+   ├ llm_client.py     (Responses API + Structured Outputs)
+   ├ observer.py       (symbolic only)
+   ├ executor.py       (JS via bridge)
+   ├ verifier.py       (wraps critic)
+   ├ memory_store.py   (Convex client + JSONL fallback)
+   ├ event_bus.py      (in-process pub/sub)
+   ├ observability_hook.py
+   └ voice.py          (ElevenLabs, fire-and-forget)
 
-Game Window
-  -> screenshot
-  -> VLM Observer
-  -> World Snapshot
-
-GameProfileBuilder
-  -> static profile or research notes
-  -> Game Profile
-
-AgentLoop
-  -> retrieve memory
-  -> GPT-5.5 Planner
-  -> grounded Plan
-  -> Validator
-  -> Executor
-  -> keyboard/mouse adapter or optional Minecraft adapter
-  -> Verifier
-  -> Diagnoser
-  -> RecoveryPolicy
-  -> SkillBuilder
-  -> MemoryStore
-  -> Dashboard Event stream
+dashboard/  Next.js 14 app                       Vercel
+   ├ BotView                                       (deploys dashboard,
+   ├ GoalPanel                                      reads Convex via
+   ├ EventFeed                                      NEXT_PUBLIC_CONVEX_URL)
+   ├ SkillLibrary
+   └ NarrationPlayer
 ```
 
-Two-speed loop:
+## Demo flow
 
-- Slow AI loop: observe, plan, verify, diagnose, repair, update memory.
-- Fast control loop: execute keypresses, mouse movement, clicks, waits, and adapter calls locally.
+1. Curriculum agent picks the next task (or the demo curriculum hardcoded list).
+2. Observer queries `bridge.getState()` → `WorldSnapshot`.
+3. SkillManager retrieves the top-3 most relevant prior skills via embedding similarity.
+4. Action agent emits `{ explain, plan, code, name }`.
+5. Validator rejects forbidden tokens (require, fs, eval, etc.).
+6. Executor runs `bridge.runJs(code)`. The bridge wraps it in `(async (bot, mcData, Vec3, goals, Movements) => { ... })()` and captures result/error/timeout.
+7. Observer takes a fresh `WorldSnapshot`.
+8. Critic agent compares before/after → `{verdict, confidence, feedback}`.
+9. On success: SkillBuilder writes the JS to Chroma + Convex; emit `skill_promoted`. On failure: retry up to 3 attempts, feeding the previous error back to the action prompt.
+10. Every transition is mirrored to Convex `events` and broadcast on the local event bus.
 
-## Primitive Actions
+## Language
 
-Generic actions:
+- **AgentLoop**: the orchestrator (`brain/agent_loop.py`). Runs `run_once(task)` and `run_episode(task_queue, max_cycles, use_curriculum)`.
+- **CurriculumAgent**: GPT-5.5 component that proposes the next task. Lives in `brain/voyager_agents/curriculum.py`.
+- **ActionAgent**: GPT-5.5 component that emits an async JS body. Lives in `brain/voyager_agents/action.py`.
+- **CriticAgent**: GPT-5.5 component that judges success. Lives in `brain/voyager_agents/critic.py`.
+- **SkillManager**: ChromaDB-backed skill store with OpenAI-embedded vector retrieval. Lives in `brain/voyager_agents/skill.py`.
+- **JsCodeAction**: the unit emitted by the action agent and consumed by the executor. `(id, name, description, code, expected_outcome, timeout_ms)`.
+- **BotClient**: the brain's stdin/stdout client to the bridge. Methods: `start, connect, run_js, get_state, chat, ping, stop`.
+- **VoyagerBridge**: the Node.js JSON-RPC server in `bot/`. Same method names. Stdout is reserved for protocol; stderr is human logs.
+- **Sandbox**: the `(bot, mcData, Vec3, goals, Movements)` tuple given to generated JS (`bot/src/skillPrimitives.ts::buildSandbox`).
+- **WorldSnapshot**: structured input to planning and verification; preserved from OmniForge so dashboard fields don't shift. Visual fields default to `unknown`.
+- **AgentEvent**: every state transition is an `AgentEvent`. The taxonomy below is the source of truth for the dashboard and Convex `events.eventType` values.
+- **Episode**: the lifetime of one `run_episode`. Identified by `MemoryStore.episode_id`. Convex-side episodes group events, state, and narration clips.
+- **NarrationClip**: an ElevenLabs synthesis triggered by an event. `voice.py::Narrator.fire_and_forget`. Mirrored to Convex `narration_clips`.
+- **Lesson**: post-mortem text extracted from a failure. Stretch goal; the schema and Convex table exist but the diagnoser only does keyword classification today.
 
-- `press_key`
-- `hold_key`
-- `move_mouse`
-- `click`
-- `wait`
-- `open_menu`
-- `select_hotbar_slot`
-- `move_toward_visible_object`
-- `interact_primary`
+## Agent Event taxonomy
 
-Optional Minecraft adapter actions:
+| Event | Emitted when |
+| --- | --- |
+| `goal_received` | AgentLoop accepts a new task (from queue, curriculum, or `--task`). |
+| `world_observed` | Observer produced a fresh WorldSnapshot. |
+| `memory_retrieved` | SkillManager retrieved top-K skills for the task. |
+| `plan_created` | ActionAgent produced `{explain, plan, code}`; mirrored as a `Plan` for the dashboard. |
+| `action_started` / `action_completed` | Bridge `runJs` started / returned (or timed out). |
+| `verification_completed` | Critic returned `{verdict, confidence, feedback}`. |
+| `failure_diagnosed` | Diagnoser keyword-classified a non-success verdict. |
+| `skill_candidate_created` / `skill_promoted` | SkillBuilder wrote a successful skill to Chroma + Convex. |
 
-- `collect_block`
-- `craft_item`
-- `build_shelter`
+## Recovery transitions
 
-The generic path is screenshot plus keyboard/mouse. Game-specific adapters can improve reliability when available.
+The `RecoveryPolicy` returns one of:
 
-## Canonical Events
+- `STORE_MEMORY` — success path; SkillBuilder runs.
+- `REPLAN` — retry with previous error fed back to the ActionAgent (up to 3 attempts).
+- `ABORT` — give up on this task; mark in failed list.
 
-- `goal_received`
-- `game_profile_created`
-- `world_observed`
-- `memory_retrieved`
-- `plan_created`
-- `action_started`
-- `action_completed`
-- `verification_completed`
-- `failure_diagnosed`
-- `research_started`
-- `research_completed`
-- `skill_candidate_created`
-- `skill_promoted`
-- `user_instruction_received`
+`RESEARCH` and `ASK_USER` exist in the enum but are not wired in this build (out of scope for the hackathon).
 
-## Shared HTTP Contract
+## File ownership
 
-The Runtime exposes:
+- Anything under `bot/` is the Mineflayer runtime: connect, plugin loading, JSON-RPC, optional viewer.
+- Anything under `brain/` is the Python AgentLoop and its components.
+- Anything under `convex/` is server-side TypeScript: schema, mutations, queries.
+- Anything under `dashboard/` is client-side React for the Vercel deployment.
+- `docs/legacy/` is quarantined OmniForge code from the previous scaffold (typed-primitive HTTP runtime, hand-coded TS skills, generic-input adapter). Not imported by the active build; preserved for reference.
 
-- `GET /health`: runtime health and adapter liveness
-- `GET /state`: optional symbolic game state
-- `GET /screenshot`: current first-person PNG screenshot
-- `GET /actions`: supported primitive action and adapter action metadata
-- `POST /action`: executes one grounded Primitive Action
+## Cost ceiling
 
-The AI Brain exposes:
+GPT-5.5 calls are tracked in `llm_client.usage_snapshot()`. The agent caps episodes at `MAX_CYCLES` (default 50) so a single demo stays under ~$5 at $5-in / $30-out per Mtok with `medium` reasoning effort.
 
-- `GET /health`: brain, runtime, memory, and feature-flag health
-- `POST /start`: starts the AgentLoop
-- `POST /stop`: stops the AgentLoop
-- `GET /status`: current cycle, goal, transition, and track status
-- `GET /memory`: current memory and skill state
-- `POST /test_action`: validates and sends one Primitive Action
-- `WS /ws`: streams Agent Events
+## What is intentionally not built
 
-## Module Scaffolds
-
-`bot/` contains the TypeScript runtime scaffold:
-
-- `main.ts`: runtime entrypoint
-- `routes.ts`: HTTP routes
-- `perception.ts`: symbolic state and screenshot boundary
-- `actionRegistry.ts`: supported action metadata and validation
-- `actionExecutor.ts`: primitive action execution boundary
-- `types.ts`: shared TypeScript contracts
-- `skills/`: optional seeded game-adapter skill stubs
-
-`brain/` contains the Python AI Brain scaffold:
-
-- `main.py`: FastAPI entrypoint
-- `agent_loop.py`: orchestration loop
-- `models.py`: shared Pydantic contracts and enums
-- `game_profile_builder.py`: static profile and research hook boundary
-- `bot_client.py`: HTTP client for the runtime
-- `observer.py`: runtime perception and VLM summary to WorldSnapshot
-- `planner.py`: GPT-5.5 structured planner boundary
-- `validator.py`: plan and action validation
-- `executor.py`: action dispatch to BotClient
-- `verifier.py`: expected result checks
-- `diagnoser.py`: failure classification
-- `recovery_policy.py`: transition recommendation
-- `researcher.py`: external knowledge retrieval hook
-- `skill_builder.py`: skill creation and update
-- `memory_store.py`: Convex primary memory with JSON fallback
-- `event_bus.py`: Agent Event broadcast
-- `voice.py`: optional coaching input and event narration
-
-## Ownership
-
-**Person A - Runtime and Adapter Layer**:
-Owns `bot/`. Implements generic keyboard/mouse primitive actions, optional Mineflayer adapter actions, screenshot capture, symbolic state, action execution, and runtime HTTP endpoints.
-
-**Person B - AI Brain and Documentation**:
-Owns `brain/` and `CONTEXT.md`. Implements AgentLoop scaffolding, Game Profile creation, observation, planning, verification, diagnosis, research hooks, skill memory, and dashboard events.
-
-## Sponsor Tracks
-
-Primary track:
-
-OpenAI/Codex Best use of GPT-5.5. GPT-5.5 is the reasoning core for planning, verification, diagnosis, repair, user coaching, and skill creation.
-
-Secondary track:
-
-Convex Best use of Convex. Convex powers the real-time memory, dashboard state, action logs, skill table, and failure history.
-
-Optional tracks:
-
-- Gemini voice coaching if voice is implemented.
-- Hyperspell long-term semantic memory if integration is quick.
-- Exa game profile and strategy research.
-
-## Example Dialogue
-
-> **Dev:** "Can OmniForge claim it plays all games?"
-> **Domain expert:** "No. Say it is a general architecture for open-world games, with Minecraft/Minetest as the first benchmark."
-
-> **Dev:** "Can the Planner send 'build shelter' to the Executor?"
-> **Domain expert:** "No. The Planner must compile that into grounded Primitive Actions with explicit arguments and expected results."
-
-> **Dev:** "Should the Diagnoser call Exa when it thinks the shelter strategy is weak?"
-> **Domain expert:** "No. The Diagnoser returns a structured diagnosis. The AgentLoop decides whether to call the Researcher."
-
-> **Dev:** "Is a Skill executable code?"
-> **Domain expert:** "No. A Skill is a versioned structured procedure. The Executor only runs validated Primitive Actions."
-
-## Current Implementation Constraints
-
-- No `.venv` or `venv` exists in the repo, and the current scaffold pass must not create one.
-- Command-based tests should wait until a virtual environment exists.
-- OpenAI API usage should follow the official Responses API and Structured Outputs guidance.
-- Secrets, API keys, tokens, and credentials must never be committed or logged.
+- Generic keyboard/mouse adapter for non-Minecraft games (lives in `docs/legacy/bot/`).
+- VLM perception path.
+- Multi-agent / MCP / mobile.
+- Fine-tuning.
+- A real diagnoser. The current one only does keyword classification; an LLM-driven post-mortem is a Day 3 stretch.

@@ -229,3 +229,40 @@ class AgentEvent(BaseModel):
     cycle: int = 0
     snapshot_id: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class JsCodeAction(BaseModel):
+    """A single Voyager-style code-as-policy action.
+
+    `code` is an async JS body that the Mineflayer bridge wraps in
+    `(async (bot, mcData, Vec3, goals, Movements) => { ... })()` and evaluates.
+    Stored as part of an observability `Plan` for the dashboard so judges can
+    read what the agent attempted.
+    """
+
+    id: str
+    name: str = "unnamed_skill"
+    description: str = ""
+    code: str
+    expected_outcome: str = ""
+    timeout_ms: int = 60_000
+
+
+class NarrationClip(BaseModel):
+    id: str
+    text: str
+    voice_id: str | None = None
+    audio_url: str | None = None
+    audio_path: str | None = None
+    duration_ms: int | None = None
+    created_at: str
+    triggered_by: AgentEventType | None = None
+
+
+class Lesson(BaseModel):
+    id: str
+    summary: str
+    failure_type: FailureType | None = None
+    triggered_by_task: str
+    code_excerpt: str | None = None
+    created_at: str

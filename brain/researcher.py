@@ -1,15 +1,25 @@
-"""External game knowledge retrieval scaffold."""
+"""Researcher — out-of-scope for the hackathon build.
+
+OmniPlay-MC does not call external strategy retrieval. Module preserved so the
+AgentLoop / event taxonomy stays consistent. If implemented later, drop in an
+Exa or Hyperspell client here and route via `RecoveryTransition.RESEARCH`.
+"""
+
+from __future__ import annotations
+
+import logging
 
 from models import ResearchNote
 
+LOG = logging.getLogger("omniplay.researcher")
+
 
 class Researcher:
-    """Retrieves game profile and strategy knowledge when the AgentLoop asks."""
+    enabled: bool = False
 
-    async def research(self, query: str) -> ResearchNote:
-        """Return structured strategy notes for a query.
+    async def lookup(self, query: str) -> ResearchNote | None:
+        LOG.debug("researcher disabled; ignoring query: %s", query)
+        return None
 
-        TODO(Person B): integrate Exa for new game profiles, missing strategy,
-        repeated failures, unknown mechanics, or explicit user coaching.
-        """
-        raise NotImplementedError("Researcher.research is scaffold-only")
+
+__all__ = ["Researcher"]
